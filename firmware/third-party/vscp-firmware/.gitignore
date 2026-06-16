@@ -1,0 +1,64 @@
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.sym
+*.map
+*.elf
+
+# Compiled Dynamic libraries
+*.so
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lst
+*.srec
+*.d
+*.cof
+*.err
+
+#other filetypes to ignore
+*.lnk
+Thumbs.db
+*.pnps
+
+*.pre
+*.p1
+*.sdb
+*.rlf
+*.obj
+*.hxl
+*.cmf
+
+*.c~
+*.h~
+
+/avr/demo_vscp_node_can128/Debug
+/avr/demo_vscp_node_can128/bin
+/avr/demo_vscp_node_can128/demo_vscp_node_can128
+/avr/demo_vscp_node_can128/atmelstudio
+/avr/demo_vscp_node_can128/project/.vs/project/v14/.atsuo
+/avr/demo_vscp_node_can128/project/project/Debug/Makefile
+/avr/demo_vscp_node_can128/project/project/Debug/makedep.mk
+/avr/demo_vscp_node_can128/project/project/Debug/project.eep
+/avr/demo_vscp_node_can128/project/project/Debug/project.hex
+/avr/demo_vscp_node_can128/project/project/Debug/project.lss
+/avr/bootloader/standard/StandardVscpBoot/Debug/Makefile
+/avr/bootloader/standard/StandardVscpBoot/Debug/makedep.mk
+/avr/bootloader/standard/StandardVscpBoot/StandardVscpBoot.componentinfo.xml
+*.atsuo
+*.bin
+avr/AAMini/AAmini.componentinfo.xml
+avr/AAMini/AAmini.cproj
+*.hex
+avr/AAMega/AAmega.componentinfo.xml
+avr/AAboot/PCsoft/bootloader1/obj
+avr/AAboot/PCsoft/bootloader1/bin
+
+doxygen
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
