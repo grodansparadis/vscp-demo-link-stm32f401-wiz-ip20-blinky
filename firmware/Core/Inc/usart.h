@@ -37,7 +37,10 @@ extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN Private defines */
-
+/* NOTE: If you change USART1 settings in CubeMX (stm32f401.ioc), update the
+ *       corresponding values in firmware/board-config.h to keep the WIZnet IP20
+ *       serial configuration in sync.
+ *       Current settings: 115200 8N1, no flow control (USART1_* macros). */
 /* USER CODE END Private defines */
 
 void MX_USART1_UART_Init(void);

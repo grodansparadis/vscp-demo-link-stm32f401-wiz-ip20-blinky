@@ -36,32 +36,6 @@
 #include <sys/param.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
-#include <dirent.h>
-
-#include <esp_system.h>
-#include <esp_chip_info.h>
-#include <esp_flash_spi_init.h>
-#include <esp_flash.h>
-#include <esp_wifi.h>
-#include <esp_mac.h>
-#include <esp_ota_ops.h>
-#include <esp_timer.h>
-#include <esp_err.h>
-#include "esp_log.h"
-#include "esp_log_buffer.h"
-#include <nvs_flash.h>
-#include <esp_http_server.h>
-
-#include <esp_event_base.h>
-#include <esp_tls_crypto.h>
-#include <esp_vfs.h>
-#include <esp_spiffs.h>
-#include <esp_http_server.h>
-
-#include <netinet/in.h>
-#include <lwip/sockets.h>
-// #include <freertos/FreeRTOS.h>
-// #include <freertos/task.h>
 
 #include "vscp-compiler.h"
 #include "vscp-projdefs.h"
@@ -75,9 +49,6 @@
 
 #include "vscp-binary.h"
 #include "can4vscp.h"
-#include "vscp-ws1.h"
-#include "vscp-ws-common.h"
-#include "websocksrv.h"
 
 extern node_persistent_config_t g_persistent;
 

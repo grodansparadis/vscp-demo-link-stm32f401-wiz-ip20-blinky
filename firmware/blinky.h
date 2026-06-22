@@ -30,6 +30,8 @@
 #ifndef __VSCPBLINK_H__
 #define __VSCPBLINK_H__
 
+#include "board-config.h"
+
 #include <vscp.h>
 #include <vscp-fifo.h>
 #include <vscp-firmware-helper.h>
@@ -47,29 +49,31 @@
 #endif
 
 /**
- * Max number of events in the receive fifo
+ * Max number of events in the incoming fifo (to node)
  */
-#define RECEIVE_FIFO_SIZE 16
+#define INCOMING_FIFO_SIZE 16
 
 /**
- * Max number of events in each of the transmit fifos
+ * Max number of events in each of the outgoing fifo (to client)
  */
-#define TRANSMIT_FIFO_SIZE 16
+#define OUTGOING_FIFO_SIZE 16
 
-#define TCPSRV_WELCOME_MSG                                                                                             \
-  "Welcome to the VSCP CAN4VSCP Gateway\r\n"                                                                           \
+#define BLINKY_WELCOME_MSG                                                                                             \
+  "Welcome to the VSCP Blinky demo\r\n"                                                                                     \
+  "STM32F401 + WIZnet IP20\r\n"                                                                                     \
+  "Version: 0.0.1 - %d\r\n"                                                                                             \
   "Copyright (C) 2000-2026 Grodans Paradis AB\r\n"                                                                     \
   "https://www.grodansparadis.com\r\n"                                                                                 \
   "+OK\r\n"
 
 // System defaults
 
-#define DEFAULT_NODE_NAME        "VSCP CAN4VSCP Gateway"
+#define DEFAULT_NODE_NAME        "VSCP Blinky"
 #define DEFAULT_ENCRYPTION_LEVEL VSCP_ENCRYPTION_NONE // 0 = none, 1 = AES128, 2 = AES192, 3 = AES256
 #define DEFAULT_MODULE_ZONE      0                    // VSCP zone for module
 #define DEFAULT_MODULE_SUBZONE   0                    // VSCP subzone for module
 
-#define DEFAULT_VSCP_LINK_PORT     9598
+#define DEFAULT_VSCP_LINK_PORT     VSCP_LINK_PORT // defined in board-config.h
 #define DEFAULT_VSCP_LINK_USER     "vscp"
 #define DEFAULT_VSCP_LINK_PASSWORD "secret"
 
@@ -91,31 +95,6 @@ typedef struct {
   char vscplinkPw[VSCP_LINK_MAX_PASSWORD_LENGTH];    // VSCP link protocol password
 
 } node_persistent_config_t;
-
-/*
-  Socket context
-  This is the context for each open socket/channel.
-  Here there is only one possible channel open at the
-  same time, but in a more complex implementation there could be
-  multiple channels
-*/
-// typedef struct _ctx {
-//   int id;           // Context ID (index in context array) Here always zero
-//   int sock;         // Socket (here always zero)
-//   int binary;       // Binary mode if non zero, text mode if zero
-//   uint8_t guid[16]; // GUID for client (copied from node GUID, can be used to track which client is which if multiple
-//                     // clients are supported)
-//   char user[VSCP_LINK_MAX_USER_NAME_LENGTH]; // Username storage
-//   vscp_fifo_t fifoEventsIn;                  // VSCP event receive fifo
-//   vscp_fifo_t fifoEventsOut;                 // VSCP event send fifo
-//   unsigned  bValidated : 1;                            // User is validated
-//   unsigned  bRcvLoop : 1;                              // Receive loop is enabled if non zero
-//   uint8_t privLevel;                         // User privilege level 0-15
-//   vscpEventFilter filter;                    // Filter for events sent to client
-//   vscp_statistics_t statistics;              // VSCP Statistics
-//   vscp_status_t status;                      // VSCP status
-//   uint32_t last_rcvloop_time;                // Time in milliseconds of last received event
-// } ctx_t;
 
 // Message for connection when max number of clients is reached
 #define MSG_MAX_CLIENTS "Max number of clients reached. Disconnecting.\r\n"

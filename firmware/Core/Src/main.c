@@ -33,7 +33,8 @@
 #include <vscp-firmware-level2.h>
 #include <vscp-link-protocol.h>
 #include <vscp-binary-protocol.h>
-#include <vscp-link-protocol-callbacks.h>
+#include "vscp-link-protocol-callbacks.h"
+#include "vscp-firmware-level2-callbacks.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -117,6 +118,105 @@ static volatile uint16_t uart1_rx_head = 0; /* written by ISR/callback     */
 static volatile uint16_t uart1_rx_tail = 0; /* read  by main loop          */
 static uint8_t uart1_rx_byte;               /* single-byte DMA target      */
 
+// This buffer is used to store the IP address as a string for the Wiznet IP20.
+//  It is updated when we read the IP address from the module during initialization.
+char g_ipaddrstr[20] = { 0 };
+
+// This buffer stores the MAC address as a string for the Wiznet IP20
+//  It is updated when we read the MAC address from the module during initialization.
+char g_macaddrstr[20] = { 0 };
+
+//----------------------------------------------------------------------------
+//                         VSCP Binary Protocol
+//----------------------------------------------------------------------------
+
+/* Binary context for each possible client connection */
+static vscp_binary_ctx_t ctx_binary = { 0 };
+
+//----------------------------------------------------------------------------
+//                         VSCP Protocol
+//----------------------------------------------------------------------------
+
+vscp_frmw2_ops_t ops_firmware = {
+  .get_milliseconds          = vscp_frmw2_callback_get_ms,
+  .get_timestamp             = vscp_frmw2_callback_get_timestamp,
+  .send_event                = vscp_frmw2_callback_send_event,
+  .dm_action                 = vscp_frmw2_callback_dm_action,
+  .segment_ctrl_heartbeat    = vscp_frmw2_callback_segment_ctrl_heartbeat,
+  .report_events_of_interest = vscp_frmw2_callback_report_events_of_interest,
+  .set_event_time            = vscp_frmw2_callback_set_event_time,
+  .get_ip_addr               = vscp_frmw2_callback_get_ip_addr,
+  .read_reg                  = vscp_frmw2_callback_read_reg,
+  .write_reg                 = vscp_frmw2_callback_write_reg,
+  .stdreg_change             = vscp_frmw2_callback_stdreg_change,
+  .restore_defaults          = vscp_frmw2_callback_restore_defaults,
+  .enter_bootloader          = vscp_frmw2_callback_enter_bootloader,
+  .reset                     = vscp_frmw2_callback_reset,
+  .feed_watchdog             = vscp_frmw2_callback_feed_watchdog,
+};
+
+static vscp_link_ctx_t ctx_link;
+
+/* Context for VSCP Level II protocol stack */
+static vscp_frmw2_firmware_context_t ctx_firmware = {
+  .level    = VSCP_LEVEL2,
+  .state    = FRMW2_STATE_NONE,
+  .substate = 0,
+
+  .bEnableErrorReporting          = 0, // Send error reporting events (FALSE)
+  .bEnableLogging                 = 0, // Enable logging events (FALSE)
+  .log_id                         = 0, // Identifies log channel
+  .log_level                      = 0, // Level for logs
+  .bHighEndServerResponse         = 0, // React on high end server probe. Only level II (FALSE)
+  .bEnableWriteProtectedLocations = 0, // GUID/manufacturer id (FALSE)
+  .bUse16BitNickname              = 0, // 16-bit nickname. Default is false. Only for level I (FALSE)
+  .bInterestedInAllEvents         = 0, // TRUE if interested in all events. If FALSE
+
+  .interval_heartbeat = 5000, // Interval for heartbeats in milli-seconds (0=off)
+  .last_heartbeat     = 0, // Time for last heartbeat send
+  .interval_caps      = 0, // Interval for capabilities events in milli-seconds (0=off)
+  .last_caps          = 0, // Time for last caps send
+
+  // Decision matrix
+  .pDm         = NULL, // Pointer to decision matrix storage (NULL if no DM).
+  .nDmRows     = 0,    // Number of DM rows (0 if no DM).
+  .sizeDmRow   = 0,    // Size for one DM row.
+  .regOffsetDm = 0,    // Register offset for DM (normally zero)
+  .pageDm      = 0,    // Register page where DM definition starts
+
+  .pInternalMdf      = NULL, // Internal MDF data. Firmware can use this as needed.
+  .pEventsOfInterest = NULL, // Filled in by firmware on init
+
+  .high_end_srv_caps   = 0, // High end server capabilities
+  .high_end_ip_address = 0, // High end server ip-address
+  .high_end_srv_port   = 0, // High end server port
+
+  .alarm_status                = 0,    // [I] Alarm. Read only for clients. (init=0)
+  .vscp_major_version          = 1,    // [C] VSCP protocol major version. (init=1)
+  .vscp_minor_version          = 4,    // [C] VSCP protocol minor version. (init=4)
+  .errorCounter                = 0,    // [I] Error counter. Clear on read. Read only for clients. (init=0)
+  .userId                      = 0,    // [P] User id.
+  .manufacturerId              = 0,    // [*/P] Manufacturer id.Read only for clients.
+  .manufacturerSubId           = 0,    // [*/P] Manufacturer sub id.Read only for clients.
+  .nickname                    = 0xff, // [P] Device nickname (init=0xff)
+  .page_select                 = 0,    // [I] Page select register. (Init = 0)
+  .firmware_major_version      = 0,    // [*] This software version. Read only for clients.
+  .firmware_minor_version      = 0,    // [*] This software version. Read only for clients.
+  .firmware_sub_minor_version  = 0,    // [*] This software version. Read only for clients.
+  .bootloader_algorithm        = 0,    // [*] Boot loader algorithm we use.
+  .standard_device_family_code = 0,    // [*] Family code. Read only for clients.
+  .standard_device_type_code   = 0,    // [*] Family type. Read only for clients.
+  .firmware_device_code        = 0,
+
+  .guid       = { 0 },
+  .mdfurl     = { 0 },
+  .ipaddr     = { 0 },
+  .deviceName = "Blinky demo device",
+
+  .ops       = &ops_firmware,
+  .puserdata = &ctx_link, // Link protocol context is available as user data for firmware callbacks
+};
+
 //----------------------------------------------------------------------------
 //                         VSCP Link Protocol
 //----------------------------------------------------------------------------
@@ -181,11 +281,11 @@ static vscp_link_ctx_t ctx_link = {
   .next              = NULL,
   .ops               = &link_ops,
   .id                = 0,
-  .sock              = 0,       // Non zero when connected
+  .sock              = 0, // Non zero when connected
   .guid              = { 0 },
   .user              = { 0 },
-  .fifoEventsIn      = { 0 },
-  .fifoEventsOut     = { 0 },
+  .fifoEventsIn      = { 0 }, // VSCP event receive fifo (from client)
+  .fifoEventsOut     = { 0 }, // VSCP event transmit fifo (to client)
   .bValidated        = 0,
   .bRcvLoop          = 0,
   .privLevel         = 0,
@@ -193,25 +293,7 @@ static vscp_link_ctx_t ctx_link = {
   .statistics        = { 0 },
   .status            = { 0 },
   .last_rcvloop_time = 0,
-  .user_data         = NULL,
-};
-
-//----------------------------------------------------------------------------
-//                         VSCP Binary Protocol
-//----------------------------------------------------------------------------
-
-/* Binary context for each possible client connection */
-static vscp_binary_ctx_t ctx_binary = { 0 };
-
-//----------------------------------------------------------------------------
-//                         VSCP Protocol
-//----------------------------------------------------------------------------
-
-/* Context for VSCP Level II protocol stack */
-static vscp_frmw2_firmware_context_t ctx_firmware = {
-  .level    = VSCP_LEVEL2,
-  .state    = FRMW2_STATE_NONE,
-  .substate = 0,
+  .user_data         = &ctx_firmware,
 };
 
 node_persistent_config_t g_persistent;
@@ -618,7 +700,7 @@ setGUID(uint8_t *pguid)
 void
 setContextDefaults(vscp_link_ctx_t *pctx)
 {
-  //memset(pctx, 0, sizeof(vscp_link_ctx_t));
+  // memset(pctx, 0, sizeof(vscp_link_ctx_t));
   pctx->id   = 0;
   pctx->next = NULL;
   pctx->ops  = &link_ops;
@@ -626,9 +708,9 @@ setContextDefaults(vscp_link_ctx_t *pctx)
   memset(pctx->user, 0, VSCP_LINK_MAX_USER_NAME_LENGTH);
   setGUID(pctx->guid);
   vscp_fifo_deinit(&pctx->fifoEventsOut);
-  vscp_fifo_init(&pctx->fifoEventsOut, VSCP_LINK_MAX_OUT_FIFO_SIZE);
+  vscp_fifo_init(&pctx->fifoEventsOut, OUTGOING_FIFO_SIZE);
   vscp_fifo_deinit(&pctx->fifoEventsIn);
-  vscp_fifo_init(&pctx->fifoEventsIn, VSCP_LINK_MAX_IN_FIFO_SIZE);
+  vscp_fifo_init(&pctx->fifoEventsIn, INCOMING_FIFO_SIZE);
   pctx->bValidated = 0; // No credentials yet
   pctx->privLevel  = 0; // No privileges before we are logged in
   pctx->bRcvLoop   = 0; // Polling mode by default, can switch to RETR after login if desired
@@ -669,38 +751,39 @@ resetContextDefaults(vscp_link_ctx_t *pctx)
 }
 
 /*!
-  * @brief  Restart the WIZnet IP20 module to apply new settings.
-  *
-  * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
-  * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
-  * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
-  * restarting the module.
-  *
-  * Note: This function assumes that you are already in command mode before calling it.
-  *
-  * @retval None
-*/
+ * @brief  Restart the WIZnet IP20 module to apply new settings.
+ *
+ * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
+ * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
+ * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
+ * restarting the module.
+ *
+ * Note: This function assumes that you are already in command mode before calling it.
+ *
+ * @retval None
+ */
 /*!
-  * @brief  Restart the WIZnet IP20 module to apply new settings.
-  *
-  * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
-  * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
-  * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
-  * restarting the module.
-  *
-  * Note: This function assumes that you are already in command mode before calling it.
-  *
-  * @retval None
-*/
-void wiznet_ip20_restart(void)
+ * @brief  Restart the WIZnet IP20 module to apply new settings.
+ *
+ * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
+ * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
+ * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
+ * restarting the module.
+ *
+ * Note: This function assumes that you are already in command mode before calling it.
+ *
+ * @retval None
+ */
+void
+wiznet_ip20_restart(void)
 {
   char buf[80];
+
   HAL_UART_Transmit(&huart1, (uint8_t *) "RT\r\n", 8, HAL_MAX_DELAY);
   if (0 == uart1_rx_getline(buf, sizeof(buf), 1000)) {
-     LOGSTR("Response: %s\r\n", buf);
+    LOGSTR("Response: %s\r\n", buf);
   }
 }
-
 
 /*!
  * @brief  Enter WIZnet IP20 command mode and wait for the "CMD" response.
@@ -725,7 +808,6 @@ wiznet_ip20_command_mode(void)
   HAL_Delay(500); // guard time before
   HAL_UART_Transmit(&huart1, (uint8_t *) "+++", 3, HAL_MAX_DELAY);
   HAL_Delay(500); // guard time after
-  // rx_len = getWizIp20Response(buf, sizeof(buf), 1000);
   if (0 == uart1_rx_getline(buf, sizeof(buf), 1000)) {
     LOGSTR("Received response after +++: %s\r\n", buf);
     if (strstr(buf, "SEG:AT Mode") == 0) {
@@ -733,7 +815,7 @@ wiznet_ip20_command_mode(void)
       return 0;
     }
   }
-  
+
   LOGSTR("Failed to enter command mode (maybe already in command mode)\r\n");
 
   // If already in command mode this will give error but we get back to command mode anyway so we can ignore it
@@ -744,43 +826,43 @@ wiznet_ip20_command_mode(void)
 }
 
 /*!
-  * @brief  Save WIZnet IP20 configuration to non-volatile memory.
-  *
-  * After configuring the WIZnet IP20 module with the desired settings using AT commands, we need to save the configuration
-  * to non-volatile memory so that it persists across power cycles. This function sends the appropriate AT command to
-  * trigger the save operation on the WIZnet IP20 module. The exact command may depend on the module's firmware version,
-  * so you should refer to the WIZnet IP20 documentation for the correct command to use for saving the configuration.
-  *
-  * Note: This function assumes that you are already in command mode before calling it.
-  *
-  * @retval None
-  */
+ * @brief  Save WIZnet IP20 configuration to non-volatile memory.
+ *
+ * After configuring the WIZnet IP20 module with the desired settings using AT commands, we need to save the
+ * configuration to non-volatile memory so that it persists across power cycles. This function sends the appropriate AT
+ * command to trigger the save operation on the WIZnet IP20 module. The exact command may depend on the module's
+ * firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for saving the
+ * configuration.
+ *
+ * Note: This function assumes that you are already in command mode before calling it.
+ *
+ * @retval None
+ */
 
-void wiznet_ip20_save(void)
+void
+wiznet_ip20_save(void)
 {
   // For some strange reason two SV is needed to really save
   HAL_UART_Transmit(&huart1, (uint8_t *) "SV\r\nSV\r\n", 8, HAL_MAX_DELAY);
 }
 
-
-
 /*!
-  * @brief  Send an AT command to the WIZnet IP20 module and wait for a response.
-  *
-  * This function sends a specified AT command string to the WIZnet IP20 module over UART1 and waits for a response. The
-  * response is expected to be a complete line terminated by \r\n. The function uses the uart1_rx_getline() helper function
-  * to read the response from the ring buffer with a specified timeout. If a response is received within the timeout, it
-  * is stored in the provided response buffer and the function returns success. If no response is received within the
-  * timeout, the function returns failure.
-  *
-  * Note: This function assumes that you are already in command mode before calling it.
-  *
-  * @param cmd                The AT command string to send (should include \r\n if required by the command).
-  * @param response_buf       Buffer to store the received response (should be large enough to hold expected responses).
-  * @param response_buf_size  Size of the response buffer in bytes.
-  * @param timeout_ms         Timeout in milliseconds to wait for a response.
-  * @retval int               Returns 1 on success (response received), or 0 on failure (timeout or error).
-*/
+ * @brief  Send an AT command to the WIZnet IP20 module and wait for a response.
+ *
+ * This function sends a specified AT command string to the WIZnet IP20 module over UART1 and waits for a response. The
+ * response is expected to be a complete line terminated by \r\n. The function uses the uart1_rx_getline() helper
+ * function to read the response from the ring buffer with a specified timeout. If a response is received within the
+ * timeout, it is stored in the provided response buffer and the function returns success. If no response is received
+ * within the timeout, the function returns failure.
+ *
+ * Note: This function assumes that you are already in command mode before calling it.
+ *
+ * @param cmd                The AT command string to send (should include \r\n if required by the command).
+ * @param response_buf       Buffer to store the received response (should be large enough to hold expected responses).
+ * @param response_buf_size  Size of the response buffer in bytes.
+ * @param timeout_ms         Timeout in milliseconds to wait for a response.
+ * @retval int               Returns 1 on success (response received), or 0 on failure (timeout or error).
+ */
 int
 wiznet_ip20_send_command(const char *cmd, char *response_buf, size_t response_buf_size, uint16_t timeout_ms)
 {
@@ -961,7 +1043,6 @@ init_wiznet_ip20(void)
   HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC2, strlen(WIZ_IP20_MQTT_SUB_TOPIC2), HAL_MAX_DELAY);
 
 #endif
-  
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -1002,6 +1083,9 @@ show_wiznet_ip20_settings(void)
   HAL_UART_Transmit(&huart1, (uint8_t *) "MC\r\n", 4, HAL_MAX_DELAY);
   if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
     LOGSTR("Response: %s\r\n", buf);
+    // Save the MAC address
+    strncpy(g_macaddrstr, buf, sizeof(g_macaddrstr) - 1);
+    g_macaddrstr[sizeof(g_macaddrstr) - 1] = '\0';
   }
 
   // Query operation mode
@@ -1032,6 +1116,9 @@ show_wiznet_ip20_settings(void)
   HAL_UART_Transmit(&huart1, (uint8_t *) "LI\r\n", 4, HAL_MAX_DELAY);
   if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
     LOGSTR("Response: %s\r\n", buf);
+    // Save the ip address
+    strncpy(g_ipaddrstr, buf, sizeof(g_ipaddrstr) - 1);
+    g_ipaddrstr[sizeof(g_ipaddrstr) - 1] = '\0';
   }
 
   // Get local subnet mask
@@ -1077,10 +1164,10 @@ main(void)
   /* USER CODE BEGIN 1 */
   char buf[100]; // Buffer for AT command responses and incoming data
   size_t rx_len;
-  (void) rx_len;                  // only used to capture AT response lengths during init
-  uint32_t led_blink_until   = 0; // LED blink timestamp
-  //vscp_state_t vscp_state    = VSCP_STATE_DISCONNECTED;
-  vscp_state_t vscp_substate = VSCP_SUBSTATE_POLL;
+  (void) rx_len;                   // only used to capture AT response lengths during init
+  uint32_t led_blink_until    = 0; // LED blink timestamp
+  uint32_t heartbeat_interval = 0; // Heartbeat clock
+  vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1121,7 +1208,7 @@ main(void)
   uart1_rx_start();
 
   // Initialize context for client connections
-  // setContextDefaults(&ctx[0]);
+  setContextDefaults(&ctx_link);
 
   /*
     * WIZ-IP20 initialization sequence (AT command mode, blocking)
@@ -1138,6 +1225,8 @@ main(void)
   wiznet_ip20_save();
   wiznet_ip20_restart();
 
+  // Initialize the VSCP firmware stack with the context for our single client connection
+  vscp_frmw2_init(&ctx_firmware);
 
   // Debug print to indicate that the program has started
   LOGSTR("STM32F401 Wiznet IP20 VSCP blink demo starting\r\n");
@@ -1151,6 +1240,12 @@ main(void)
 
     /* USER CODE BEGIN 3 */
 
+    // const vscpEventEx *const pex
+    if (vscp_frmw2_work(&ctx_firmware, NULL)) {
+      /* If an event was produced by the firmware, we can handle it here (e.g. add to outgoing FIFO) */
+      LOGSTR("Firmware produced an event\r\n");
+    }
+
     /* ------------------------------------------------------------------
      * State machine – scan ring buffer for control tokens (no \r\n needed)
      * ----------------------------------------------------------------*/
@@ -1161,15 +1256,10 @@ main(void)
           uart1_rx_consume_through("<CONNECT>");
           LOGSTR("Received <CONNECT>\r\n");
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          led_blink_until      = HAL_GetTick() + 50u;
-          const char welcome[] = "Welcome to the VSCP daemon on ST32 + Wiznet IP20.\r\n"
-                                 "Version: 0.0.1\r\n"
-                                 "Copyright (c) 2000-2026 Ake Hedman, Grodans \r\n"
-                                 "Paradis AB, https://www.grodansparadis.com\r\n"
-                                 "+OK - Success.\r\n";
-          HAL_UART_Transmit(&huart1, (uint8_t *) welcome, sizeof(welcome) - 1, HAL_MAX_DELAY);
-          ctx_link.sock = VSCP_STATE_CONNECTED;
+          led_blink_until = HAL_GetTick() + 50u;
+          ctx_link.sock   = VSCP_STATE_CONNECTED;
           LOGSTR("State: DISCONNECTED -> CONNECTED\r\n");
+          vscp_link_connect(&ctx_link);
         }
         else {
           /* Discard any \r\n-terminated lines that aren't <CONNECT> */
@@ -1244,7 +1334,7 @@ SystemClock_Config(void)
    * PLLQ=7 => USB/SDIO/RNG = 168/7 = 24 MHz
    */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState       = RCC_HSE_BYPASS;  /* External clock on PH0 */
+  RCC_OscInitStruct.HSEState       = RCC_HSE_BYPASS; /* External clock on PH0 */
   RCC_OscInitStruct.PLL.PLLState   = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource  = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM       = 4;
@@ -1257,12 +1347,11 @@ SystemClock_Config(void)
 
   /** Initializes the CPU, AHB and APB buses clocks
    */
-  RCC_ClkInitStruct.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
-                                   | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1;   /* HCLK  = 84 MHz */
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;     /* APB1  = 42 MHz (timers 84 MHz) */
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;     /* APB2  = 84 MHz */
+  RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1; /* HCLK  = 84 MHz */
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;   /* APB1  = 42 MHz (timers 84 MHz) */
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;   /* APB2  = 84 MHz */
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
     Error_Handler();

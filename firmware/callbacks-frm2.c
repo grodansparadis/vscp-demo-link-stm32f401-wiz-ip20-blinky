@@ -1,4 +1,4 @@
-// FILE: callbacks-vscp-protocol.c
+// FILE: callbacks-firmware-level2.c
 
 // This file holds callbacks for the VSCP protocol
 
@@ -8,7 +8,7 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (C) 2000-202 Ake Hedman, Grodans Paradis AB <info@grodansparadis.com>
+ * Copyright (C) 2000-2026 Ake Hedman, Grodans Paradis AB <info@grodansparadis.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -48,16 +48,16 @@
 
 #include <vscp-fifo.h>
 
+#include "vscp-link-protocol.h"
+#include "vscp-firmware-helper.h"
+#include "vscp-firmware-level2.h"
+
 #include "main.h"
 #include "blinky.h"
 #include "regdefs.h"
 
-
-// Defines from demo.c
-
-//extern uint8_t device_guid[16];
-//extern vscp_fifo_t fifoEventsIn;
-//extern ctx_t gctx[BLINKY_MAX_TCP_CONNECTIONS];
+extern char g_ipaddrstr[20];
+extern char g_macaddrstr[20];
 extern struct _eeprom_ eeprom;
 
 // ****************************************************************************
@@ -68,15 +68,10 @@ extern struct _eeprom_ eeprom;
 // vscp_frmw2_callback_get_ms
 //
 
-int
-vscp_frmw2_callback_get_ms(void* const puserdata, uint32_t *ptime)
+uint32_t
+vscp_frmw2_callback_get_ms(vscp_frmw2_firmware_context_t *pctx)
 {
-  if (NULL == ptime) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  *ptime = HAL_GetTick();
-  return VSCP_ERROR_SUCCESS;
+  return HAL_GetTick();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -84,9 +79,8 @@ vscp_frmw2_callback_get_ms(void* const puserdata, uint32_t *ptime)
 //
 
 const uint8_t *
-vscp_frmw2_callback_get_guid(void* const puserdata)
+vscp_frmw2_callback_get_guid(vscp_frmw2_firmware_context_t *pctx)
 {
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) puserdata;
   return pctx->guid;
 }
 
@@ -97,7 +91,7 @@ vscp_frmw2_callback_get_guid(void* const puserdata)
 //
 
 int
-vscp_frmw2_callback_write_manufacturer_id(void* const puserdata, uint8_t pos, uint8_t val)
+vscp_frmw2_callback_write_manufacturer_id(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
 {
   if (pos < 4) {
     // TODO // TODO eeprom_write(&eeprom, STDREG_MANUFACTURER_ID0 + pos, val);
@@ -117,7 +111,7 @@ vscp_frmw2_callback_write_manufacturer_id(void* const puserdata, uint8_t pos, ui
 //
 
 int
-vscp_frmw2_callback_write_guid(void* const puserdata, uint8_t pos, uint8_t val)
+vscp_frmw2_callback_write_guid(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
 {
   // TODO eeprom_write(&eeprom, STDREG_GUID0 + pos, val);
 
@@ -127,14 +121,14 @@ vscp_frmw2_callback_write_guid(void* const puserdata, uint8_t pos, uint8_t val)
   return VSCP_ERROR_SUCCESS;
 }
 
-#endif
+#endif // THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_read_user_reg
 //
 
 int
-vscp_frmw2_callback_read_user_reg(void* const puserdata, uint32_t reg, uint8_t *pval)
+vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint32_t reg, uint8_t *pval)
 {
   // Check pointers (pdata allowed to be NULL)
   if (NULL == pval) {
@@ -240,7 +234,7 @@ vscp_frmw2_callback_read_user_reg(void* const puserdata, uint32_t reg, uint8_t *
 //
 
 int
-vscp_frmw2_callback_write_user_reg(void* const puserdata, uint32_t reg, uint8_t val)
+vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint32_t reg, uint8_t val)
 {
   if (REG_DEVICE_ZONE == reg) {
     // TODO eeprom_write(&eeprom, REG_DEVICE_ZONE, val);
@@ -303,13 +297,27 @@ vscp_frmw2_callback_write_user_reg(void* const puserdata, uint32_t reg, uint8_t 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_stdreg_change
+//
+
+int
+vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t stdreg)
+{
+  if (VSCP_STD_REGISTER_USER_ID == stdreg) {
+    // TODO eeprom_write(&eeprom, STDREG_USER_ID0, pctx->userId[0]);
+  }
+
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_enter_bootloader
 //
 
 void
-vscp_frmw2_callback_enter_bootloader(void *const puserdata)
+vscp_frmw2_callback_enter_bootloader(vscp_frmw2_firmware_context_t *pctx)
 {
-  
+  // TODO implement if bootloader entry is supported by this firmware
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -317,7 +325,7 @@ vscp_frmw2_callback_enter_bootloader(void *const puserdata)
 //
 
 int
-vscp_frmw2_callback_report_dmatrix(void* const puserdata)
+vscp_frmw2_callback_report_dmatrix(vscp_frmw2_firmware_context_t *pctx)
 {
   return VSCP_ERROR_SUCCESS;
 }
@@ -327,7 +335,7 @@ vscp_frmw2_callback_report_dmatrix(void* const puserdata)
 //
 
 int
-vscp_frmw2_callback_report_mdf(void* const puserdata)
+vscp_frmw2_callback_report_mdf(vscp_frmw2_firmware_context_t *pctx)
 {
   return VSCP_ERROR_SUCCESS;
 }
@@ -337,7 +345,7 @@ vscp_frmw2_callback_report_mdf(void* const puserdata)
 //
 
 int
-vscp_frmw2_callback_report_events_of_interest(void* const puserdata)
+vscp_frmw2_callback_report_events_of_interest(vscp_frmw2_firmware_context_t *pctx)
 {
   return VSCP_ERROR_SUCCESS;
 }
@@ -347,7 +355,7 @@ vscp_frmw2_callback_report_events_of_interest(void* const puserdata)
 //
 
 uint64_t
-vscp_frmw2_callback_get_timestamp(void* const puserdata)
+vscp_frmw2_callback_get_timestamp(vscp_frmw2_firmware_context_t *pctx)
 {
   return usec_now();
 }
@@ -357,74 +365,49 @@ vscp_frmw2_callback_get_timestamp(void* const puserdata)
 //
 
 int
-vscp_frmw2_callback_get_time(void* const puserdata, const vscp_event_ex_t *pex)
+vscp_frmw2_callback_get_time(vscp_frmw2_firmware_context_t *pctx, const vscp_event_ex_t *pex)
 {
   return VSCP_ERROR_SUCCESS;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_send_event_ex
+// vscp_frmw2_callback_send_event
 //
 
 int
-vscp_frmw2_callback_send_event_ex(void *const puserdata, vscp_event_ex_t *pex)
+vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *pev)
 {
+  // There is only one connection in this demo firmware, so we can directly write to its out queue.
+  // In a more complex firmware, we would need to check which connections are open, and which
+  // ones are validated, and write to all validated connections.
+
   for (int i = 0; i < BLINKY_MAX_TCP_CONNECTIONS; i++) {
 
-    // // Only if user is validated
-    // if (gctx[i].bValidated) {
-    //   vscp_event_t *pnew = vscp_fwhlp_mkEventCopy(pex);
-    //   if (NULL == pnew) {
-    //     return VSCP_ERROR_MEMORY;
-    //   }
-    //   else {
-    //     pnew->obid = 0xffffffff; // The device
-    //     if (vscp_fifo_write(&gctx[i].fifoEventsOut, pnew)) {
-    //       printf("Written to fifo\n");
-    //     }
-    //     else {
-    //       printf("Failed to write to fifo\n");
-    //       vscp_fwhlp_deleteEvent(&pnew);
-    //     }
-    //   }
-    // }
+    vscp_event_t *pnew = vscp_fwhlp_mkEventCopy(pev);
+    if (NULL == pnew) {
+      return VSCP_ERROR_MEMORY;
+    }
+    else {
+      pnew->obid = 0xffffffff; // The device
+      // The fifo is defined in the context for the link protocol which should be in the user data of the firmware
+      // context.
+      vscp_link_ctx_t *ctx_link = (vscp_link_ctx_t *) pctx->puserdata;
+      if (vscp_fifo_write(&ctx_link->fifoEventsOut, pnew)) {
+        LOGSTR("Event written to fifo\n");
+      }
+      else {
+        LOGSTR("Failed to write event to fifo\n");
+        vscp_fwhlp_deleteEvent(&pnew);
+      }
+    }
   }
 
-  // Remove original event
-  // vscp_fwhlp_deleteEvent(&pex);
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_send_eventEx
-//
-
-int
-vscp_frmw2_callback_send_eventEx(void* const puserdata, vscp_event_ex_t *pex)
-{
-  for (int i = 0; i < BLINKY_MAX_TCP_CONNECTIONS; i++) {
-    // // Only if user is validated
-    // if (gctx[i].bValidated) {
-    //   vscp_event_t *pnew = vscp_fwhlp_mkEventCopy(pex);
-    //   if (NULL == pnew) {
-    //     return VSCP_ERROR_MEMORY;
-    //   }
-    //   else {
-    //     pnew->obid = 0xffffffff; // The device
-    //     if (vscp_fifo_write(&gctx[i].fifoEventsOut, pnew)) {
-    //       printf("Written to fifo\n");
-    //     }
-    //     else {
-    //       printf("Failed to write to fifo\n");
-    //       vscp_fwhlp_deleteEvent(&pnew);
-    //     }
-    //   }
-    // }
-  }
-
-  // Remove original event
-  // vscp_fwhlp_deleteEvent(&pex);
+  // NOTE: Do NOT call vscp_fwhlp_deleteEvent(&pev) here.
+  // The send_event contract states "the event is copied by the callback" —
+  // the caller (vscp-firmware-level2.c) owns the event struct and its pdata
+  // and is responsible for freeing them. pev points to the caller's
+  // stack-allocated vscp_event_t, so free()ing it is undefined behaviour
+  // and causes an immediate HardFault on Cortex-M.
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -434,7 +417,7 @@ vscp_frmw2_callback_send_eventEx(void* const puserdata, vscp_event_ex_t *pex)
 //
 
 int
-vscp_frmw2_callback_restore_defaults(void *const puserdata)
+vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
 {
   return VSCP_ERROR_SUCCESS;
 }
@@ -444,7 +427,7 @@ vscp_frmw2_callback_restore_defaults(void *const puserdata)
 //
 
 int
-vscp_frmw2_callback_write_user_id(void* const puserdata, uint8_t pos, uint8_t val)
+vscp_frmw2_callback_write_user_id(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
 {
   // TODO // TODO eeprom_write(&eeprom, STDREG_USER_ID0 + pos, val);
 
@@ -454,18 +437,64 @@ vscp_frmw2_callback_write_user_id(void* const puserdata, uint8_t pos, uint8_t va
   return VSCP_ERROR_SUCCESS;
 }
 
+// Helper function to convert IP address string to byte array
+// Returns 0 on success, -1 on invalid input.
+// out[] must have space for 4 bytes.
+
+static int
+ip_str_to_bytes(uint8_t out[4], const char *ip_str)
+{
+  int octet  = 0;
+  int value  = 0;
+  int digits = 0;
+
+  for (const char *p = ip_str;; p++) {
+    char c = *p;
+
+    if (c >= '0' && c <= '9') {
+      value = value * 10 + (c - '0');
+      digits++;
+      if (value > 255 || digits > 3) {
+        return -1; // octet out of range or too many digits
+      }
+    }
+    else if (c == '.' || c == '\0') {
+      if (digits == 0 || octet >= 4) {
+        return -1; // empty octet, or already have 4 octets
+      }
+      out[octet++] = (uint8_t) value;
+      value        = 0;
+      digits       = 0;
+      if (c == '\0') {
+        break;
+      }
+    }
+    else {
+      return -1; // invalid character
+    }
+  }
+
+  if (octet != 4) {
+    return -1; // not enough octets
+  }
+
+  return 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_get_ip_addr
 //
 
 int
-vscp_frmw2_callback_get_ip_addr(void *const puserdata, uint8_t *pipaddr, uint8_t size)
+vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip, uint8_t size)
 {
-  if (NULL == pipaddr) {
+  if (NULL == ip) {
     return VSCP_ERROR_PARAMETER;
   }
   else {
-    // memcpy(pipaddr, net_info.ip, 4); TODO
+    if (0 != ip_str_to_bytes(ip, g_ipaddrstr)) {
+      return VSCP_ERROR_PARAMETER;
+    }
   }
 
   return VSCP_ERROR_SUCCESS;
@@ -475,15 +504,83 @@ vscp_frmw2_callback_get_ip_addr(void *const puserdata, uint8_t *pipaddr, uint8_t
 // vscp_frmw2_callback_set_event_time
 //
 
+/*
+  New version of the the firmware just use a 64 bit timestamp and not the time field in the event.
+*/
+
 int
-vscp_frmw2_callback_set_event_time(void* const puserdata, vscpEventEx* const pex)
+vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *const pev)
 {
-  if (NULL == pex) {
+  if (NULL == pev) {
     return VSCP_ERROR_PARAMETER;
   }
 
+  pev->timestamp = vscp_frmw2_callback_get_timestamp(pctx);
+
   return VSCP_ERROR_SUCCESS;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_reset
+//
+
+int
+vscp_frmw2_callback_reset(vscp_frmw2_firmware_context_t *pctx)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_feed_watchdog
+//
+
+int
+vscp_frmw2_callback_feed_watchdog(vscp_frmw2_firmware_context_t *pctx)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_dm_action
+//
+
+int
+vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx, const vscp_event_t *pev, uint8_t action, const uint8_t *pparam)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_segment_ctrl_heartbeat
+//
+
+int
+vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, uint16_t segcrc, uint32_t time)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_read_reg
+//
+
+int
+vscp_frmw2_callback_read_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_write_reg
+//
+
+int
+vscp_frmw2_callback_write_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
+{
+  return VSCP_ERROR_SUCCESS;
+}
+
+// ----------------------------------------------------------------------------
 
 #ifdef THIS_FIRMWARE_VSCP_DISCOVER_SERVER
 
@@ -492,9 +589,11 @@ vscp_frmw2_callback_set_event_time(void* const puserdata, vscpEventEx* const pex
 //
 
 int
-vscp_frmw2_callback_high_end_server_response(const void *pUserData)
+vscp_frmw2_callback_high_end_server_response(vscp_frmw2_firmware_context_t *pctx)
 {
   return VSCP_ERROR_SUCCESS;
 }
 
-#endif
+#endif // THIS_FIRMWARE_VSCP_DISCOVER_SERVER
+
+// ----------------------------------------------------------------------------

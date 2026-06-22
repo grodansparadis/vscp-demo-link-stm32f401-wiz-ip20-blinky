@@ -47,22 +47,34 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/flash_storage.c
     ${CMAKE_CURRENT_SOURCE_DIR}/callbacks-link.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/callbacks-vscp-protocol.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/callbacks-link.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/callbacks-frm2.c
+    #${CMAKE_CURRENT_SOURCE_DIR}/callbacks-binary.c
     ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-fifo.c
-#    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-aes.c
-#    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-crc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-aes.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-crc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-firmware-helper.c
     ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-link-protocol.c
     ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-firmware-level2.c
-#    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-binary-protocol.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/vscp-binary-protocol.c
 )
+
+# Build-number increment: runs before every build, generates build_number.h
+add_custom_target(increment_build_number ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DBUILD_OUTDIR=${CMAKE_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/increment_build.cmake
+    COMMENT "Incrementing build number"
+    VERBATIM
+)
+add_dependencies(${CMAKE_PROJECT_NAME} increment_build_number)
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${CMAKE_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/
     ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/common/
+    ${CMAKE_CURRENT_SOURCE_DIR}/third-party/vscp-firmware/third-party/cJSON/
 )
 
 # Add project symbols (macros)
@@ -82,11 +94,13 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
 # Optimize for size and enable LTO for non-Debug builds
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Os -flto -ffunction-sections -fdata-sections )
-    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--gc-sections -flto)
+    #target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Os -flto -ffunction-sections -fdata-sections)
+    #target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--gc-sections -flto)
 else()
-    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Os -flto -ffunction-sections -fdata-sections)
-    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--gc-sections -flto)
+    # -Og: optimize for debuggability; -g3: full debug info; no LTO so the
+    # debugger can resolve symbols and breakpoints correctly.
+    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Og -g3 -ffunction-sections -fdata-sections)
+    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--gc-sections)
 endif()
 
 # Post-build: generate .hex and .bin from .elf

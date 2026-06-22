@@ -81,16 +81,99 @@
   MAC address to something unique on your network.
 
   https://docs.wiznet.io/Product/Chip/MCU/Pre-programmed-MCU/W55RP20-S2E/command-manual-en#un
+
+  Serial port settings are derived from the hardware configuration in board-config.h,
+  which must match the CubeMX USART1 settings in stm32f401.ioc.
 */
 
-// Serial port settings for WIZnet IP20 module
-#define WIZ_IP20_SERIAL_BAUDRATE "BR12\r\n" // BR12\r\n = 115200 baud
-#define WIZ_IP20_SERIAL_DATABITS "DB1\r\n"  // DB1\r\n = 8 data bits
+#include "board-config.h"
 
-#define WIZ_IP20_SERIAL_STOPBITS "SB0\r\n"  // SB0\r\n 0 = 1 stop bit, 1 = 2 stop bits
-#define WIZ_IP20_SERIAL_PARITY   "PR0\r\n"  // PR0\r\n 0 = none, 1 = odd, 2 = even
-#define WIZ_IP20_SERIAL_FLOWCTRL                                                                                       \
-  "FL0\r\n" // FL0\r\n 0 = none, 1 = XON/XOFF, 2 = RTS/CTS, 3 = RTS on TX, 4= RTS on TX(invert)
+// Helper macros for stringification (used to build the WIZ_IP20_PORT command string)
+#ifndef _BOARD_STR
+#define _BOARD_STR(x)  #x
+#define _BOARD_XSTR(x) _BOARD_STR(x)
+#endif
+
+// Serial port settings for WIZnet IP20 module - derived from board-config.h / USART1 configuration
+
+// WIZnet baud rate codes: 0=300 1=600 2=1200 3=1800 4=2400 5=4800 6=9600 7=14400
+//                         8=19200 9=28800 10=38400 11=57600 12=115200 13=230400
+#if USART1_BAUDRATE == 300
+#define WIZ_IP20_SERIAL_BAUDRATE "BR0\r\n"
+#elif USART1_BAUDRATE == 600
+#define WIZ_IP20_SERIAL_BAUDRATE "BR1\r\n"
+#elif USART1_BAUDRATE == 1200
+#define WIZ_IP20_SERIAL_BAUDRATE "BR2\r\n"
+#elif USART1_BAUDRATE == 1800
+#define WIZ_IP20_SERIAL_BAUDRATE "BR3\r\n"
+#elif USART1_BAUDRATE == 2400
+#define WIZ_IP20_SERIAL_BAUDRATE "BR4\r\n"
+#elif USART1_BAUDRATE == 4800
+#define WIZ_IP20_SERIAL_BAUDRATE "BR5\r\n"
+#elif USART1_BAUDRATE == 9600
+#define WIZ_IP20_SERIAL_BAUDRATE "BR6\r\n"
+#elif USART1_BAUDRATE == 14400
+#define WIZ_IP20_SERIAL_BAUDRATE "BR7\r\n"
+#elif USART1_BAUDRATE == 19200
+#define WIZ_IP20_SERIAL_BAUDRATE "BR8\r\n"
+#elif USART1_BAUDRATE == 28800
+#define WIZ_IP20_SERIAL_BAUDRATE "BR9\r\n"
+#elif USART1_BAUDRATE == 38400
+#define WIZ_IP20_SERIAL_BAUDRATE "BR10\r\n"
+#elif USART1_BAUDRATE == 57600
+#define WIZ_IP20_SERIAL_BAUDRATE "BR11\r\n"
+#elif USART1_BAUDRATE == 115200
+#define WIZ_IP20_SERIAL_BAUDRATE "BR12\r\n"
+#elif USART1_BAUDRATE == 230400
+#define WIZ_IP20_SERIAL_BAUDRATE "BR13\r\n"
+#else
+#error "Unsupported USART1_BAUDRATE. Update USART1_BAUDRATE in board-config.h."
+#endif
+
+// WIZnet data bits: DB0=7 bits, DB1=8 bits
+#if USART1_DATABITS == 7
+#define WIZ_IP20_SERIAL_DATABITS "DB0\r\n"
+#elif USART1_DATABITS == 8
+#define WIZ_IP20_SERIAL_DATABITS "DB1\r\n"
+#else
+#error "Unsupported USART1_DATABITS. Must be 7 or 8."
+#endif
+
+// WIZnet stop bits: SB0=1 stop bit, SB1=2 stop bits
+#if USART1_STOPBITS == 1
+#define WIZ_IP20_SERIAL_STOPBITS "SB0\r\n"
+#elif USART1_STOPBITS == 2
+#define WIZ_IP20_SERIAL_STOPBITS "SB1\r\n"
+#else
+#error "Unsupported USART1_STOPBITS. Must be 1 or 2."
+#endif
+
+// WIZnet parity: PR0=none, PR1=odd, PR2=even
+#if USART1_PARITY == 0
+#define WIZ_IP20_SERIAL_PARITY "PR0\r\n"
+#elif USART1_PARITY == 1
+#define WIZ_IP20_SERIAL_PARITY "PR1\r\n"
+#elif USART1_PARITY == 2
+#define WIZ_IP20_SERIAL_PARITY "PR2\r\n"
+#else
+#error "Unsupported USART1_PARITY. Must be 0 (none), 1 (odd), or 2 (even)."
+#endif
+
+// WIZnet flow control: FL0=none, FL1=XON/XOFF, FL2=RTS/CTS, FL3=RTS on TX, FL4=RTS on TX(invert)
+#if USART1_FLOWCTRL == 0
+#define WIZ_IP20_SERIAL_FLOWCTRL "FL0\r\n"
+#elif USART1_FLOWCTRL == 1
+#define WIZ_IP20_SERIAL_FLOWCTRL "FL1\r\n"
+#elif USART1_FLOWCTRL == 2
+#define WIZ_IP20_SERIAL_FLOWCTRL "FL2\r\n"
+#elif USART1_FLOWCTRL == 3
+#define WIZ_IP20_SERIAL_FLOWCTRL "FL3\r\n"
+#elif USART1_FLOWCTRL == 4
+#define WIZ_IP20_SERIAL_FLOWCTRL "FL4\r\n"
+#else
+#error "Unsupported USART1_FLOWCTRL. Must be 0-4."
+#endif
+
 #define WIZ_IP20_SERIAL_ECHO "EC1\r\n" // EC0\r\n 0 = not used, 1 = used
 
 #define WIZ_IP20_IP                   "LI192.168.1.88\r\n"  // LI192.168.1.88\r\n
@@ -98,7 +181,7 @@
 #define WIZ_IP20_GATEWAY              "GW192.168.1.1\r\n"   // GW192.168.1.1\r\n
 #define WIZ_IP20_DNS                  "DS8.8.8.8\r\n"       // DS8.8.8.8\r\n
 #define WIZ_IP20_IP_ALLOCATION_METHOD "IM0\r\n"             // IM0 = static, IM1 = DHCP, IM2 = PPPoE
-#define WIZ_IP20_PORT                 "LP9598\r\n"          // LP9598\r\n
+#define WIZ_IP20_PORT                 "LP" _BOARD_XSTR(VSCP_LINK_PORT) "\r\n" // derived from VSCP_LINK_PORT in board-config.h
 
 // Operation mode
 
@@ -187,10 +270,10 @@
 */
 
 // We link in binary support from firmware helper.
-//#define VSCP_FWHLP_BINARY_FRAME_SUPPORT
+#define VSCP_FWHLP_BINARY_FRAME_SUPPORT
 
 // Crypto support is needed for the TCP/IP link protocol
-//#define VSCP_FWHLP_CRYPTO_SUPPORT
+#define VSCP_FWHLP_CRYPTO_SUPPORT
 
 // SSL support is needed for crypto support
 // #define VSCP_FWHLP_CRYPTO_USE_OPENSSL
@@ -199,10 +282,10 @@
 // #define VSCP_FWHLP_CRYPTO_USE_PSA_CRYPTO
 
 // Enable JSON support in firmware helper.
-// #define VSCP_FWHLP_JSON_SUPPORT
+#define VSCP_FWHLP_JSON_SUPPORT
 
 // Enable XML support in firmware helper.
-// #define VSCP_FWHLP_XML_SUPPORT
+#define VSCP_FWHLP_XML_SUPPORT
 
 /**
   ----------------------------------------------------------------------------
@@ -219,12 +302,6 @@
 */
 // #define VSCP_LINK_CUSTOM_HELP_TEXT
 
-/*!
-  Size for input buffer and outputbuffer for events.
-  Must be at least one for each fifo
-*/
-#define VSCP_LINK_MAX_IN_FIFO_SIZE  (16u)
-#define VSCP_LINK_MAX_OUT_FIFO_SIZE (16u)
 
 /**
   ----------------------------------------------------------------------------
@@ -245,7 +322,8 @@
 #define THIS_FIRMWARE_MAJOR_VERSION   (0u)
 #define THIS_FIRMWARE_MINOR_VERSION   (0u)
 #define THIS_FIRMWARE_RELEASE_VERSION (1u)
-#define THIS_FIRMWARE_BUILD_VERSION   (0u)
+/* THIS_FIRMWARE_BUILD_VERSION is auto-generated and provided by build_number.h */
+#include "build_number.h"
 
 /**
  * User id (this is only defaults)

@@ -53,18 +53,18 @@ void MX_TIM3_Init(void);
  * The read sequence is overflow-safe: if an overflow occurs between
  * reading hi and lo, the second hi read will differ and lo is re-read.
  *
- * Range:  ~4 294 s before wrap (32-bit @ 1 µs/tick).
+ * Range:  effectively unbounded (64-bit @ 1 µs/tick wraps after ~584 542 years).
  *
  * @return Microseconds since TIM3 was started.
  */
-static inline uint32_t usec_now(void)
+static inline uint64_t usec_now(void)
 {
   uint32_t hi, lo;
   do {
     hi = tim3_ovf;
     lo = TIM3->CNT;
   } while (tim3_ovf != hi); /* retry if overflow hit between reads */
-  return (hi << 16) | lo;
+  return ((uint64_t)hi << 16) | lo;
 }
 
 /* USER CODE END Prototypes */

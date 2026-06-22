@@ -47,6 +47,7 @@
 #include "blinky.h"
 #include "tim.h"
 #include "usart.h"
+#include "build_number.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -66,16 +67,13 @@ extern node_persistent_config_t g_persistent;
 //
 
 int
-vscp_link_callback_welcome(const void *pdata)
+vscp_link_callback_write_client(vscp_link_ctx_t *pctx, const char *msg)
 {
-  if (NULL == pdata) {
+  if ((NULL == pctx) || (NULL == msg)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) TCPSRV_WELCOME_MSG, strlen(TCPSRV_WELCOME_MSG), HAL_MAX_DELAY);
+  HAL_UART_Transmit(&huart1, (uint8_t *) msg, strlen(msg), HAL_MAX_DELAY);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -84,49 +82,42 @@ vscp_link_callback_welcome(const void *pdata)
 //
 
 int
-vscp_link_callback_write_client(const void *pdata, const char *msg)
+vscp_link_callback_welcome(vscp_link_ctx_t *pctx)
 {
-  if ((NULL == pdata) || (NULL == msg)) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
+  char welcome_msg[256];
+  snprintf(welcome_msg, sizeof(welcome_msg), BLINKY_WELCOME_MSG, THIS_FIRMWARE_BUILD_VERSION);
 
-  HAL_UART_Transmit(&huart1, (uint8_t *) msg, strlen(msg), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, welcome_msg);
   return VSCP_ERROR_SUCCESS;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_link_callback_quit
 //
 
 int
-vscp_link_callback_quit(const void *pdata)
+vscp_link_callback_quit(vscp_link_ctx_t *pctx)
 {
-  char buf[80];
-
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
   // Confirm quit
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_GOODBY, strlen(VSCP_LINK_MSG_GOODBY), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_GOODBYE);
 
   // Go to command mode
   int rv = wiznet_ip20_command_mode();
   if (rv != 0) {
-    printf("Failed to enter command mode\n");
+    LOGSTR("Failed to enter command mode\n");
   }
 
   // Restart ethernet module (will be ready for new connections again)
+  wiznet_ip20_command_mode();
   wiznet_ip20_restart();
-
-  // Set context defaults (clears sock == unconnected)
   setContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
@@ -137,17 +128,14 @@ vscp_link_callback_quit(const void *pdata)
 //
 
 int
-vscp_link_callback_help(const void *pdata, const char *arg)
+vscp_link_callback_help(vscp_link_ctx_t *pctx, const char *arg)
 {
-  if ((NULL == pdata) || (NULL == arg)) {
+  if ((NULL == pctx) || (NULL == arg)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_STD_HELP_TEXT, strlen(VSCP_LINK_STD_HELP_TEXT), HAL_MAX_DELAY);
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_OK, strlen(VSCP_LINK_MSG_OK), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_STD_HELP_TEXT);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_OK);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -156,7 +144,7 @@ vscp_link_callback_help(const void *pdata, const char *arg)
 //
 
 uint16_t
-vscp_link_callback_get_interface_count(const void *pdata)
+vscp_link_callback_get_interface_count(vscp_link_ctx_t *pctx)
 {
   /* Return number of interfaces we support */
   return 1; // see vscp_link_callback_get_interface
@@ -167,9 +155,9 @@ vscp_link_callback_get_interface_count(const void *pdata)
 //
 
 int
-vscp_link_callback_get_interface(const void *pdata, uint16_t index, struct vscp_interface_info *pif)
+vscp_link_callback_get_interface(vscp_link_ctx_t *pctx, uint16_t index, struct vscp_interface_info *pif)
 {
-  if ((NULL == pdata) || (NULL == pif)) {
+  if ((NULL == pctx) || (NULL == pif)) {
     return VSCP_ERROR_UNKNOWN_ITEM;
   }
 
@@ -193,15 +181,15 @@ vscp_link_callback_get_interface(const void *pdata, uint16_t index, struct vscp_
       strncpy(pif->description, "Interface for the device itself", sizeof(pif->description));
       break;
 
-    // case 1: {
-    //   uint8_t guid[16];
-    //   pif->idx  = index;
-    //   pif->type = VSCP_INTERFACE_TYPE_LEVEL1DRV;
-    //   memcpy(guid, g_persistent.guid, 16);
-    //   guid[13] = 0x01; // Interface 0x0001
-    //   memcpy(pif->guid, g_persistent.guid, 16);
-    //   strncpy(pif->description, "Interface for the CAN4VSCP channel", sizeof(pif->description));
-    // } break;
+      // case 1: {
+      //   uint8_t guid[16];
+      //   pif->idx  = index;
+      //   pif->type = VSCP_INTERFACE_TYPE_LEVEL1DRV;
+      //   memcpy(guid, g_persistent.guid, 16);
+      //   guid[13] = 0x01; // Interface 0x0001
+      //   memcpy(pif->guid, g_persistent.guid, 16);
+      //   strncpy(pif->description, "Interface for the CAN4VSCP channel", sizeof(pif->description));
+      // } break;
 
     default:
       return VSCP_ERROR_UNKNOWN_ITEM;
@@ -216,7 +204,7 @@ vscp_link_callback_get_interface(const void *pdata, uint16_t index, struct vscp_
 //
 
 int
-vscp_link_callback_close_interface(const void *pdata, uint8_t *pguid)
+vscp_link_callback_close_interface(vscp_link_ctx_t *pctx, uint8_t *pguid)
 {
   return VSCP_ERROR_NOT_SUPPORTED;
 }
@@ -226,10 +214,10 @@ vscp_link_callback_close_interface(const void *pdata, uint8_t *pguid)
 //
 
 int
-vscp_link_callback_check_user(const void *pdata, const char *arg)
+vscp_link_callback_check_user(vscp_link_ctx_t *pctx, const char *arg)
 {
-  if ((NULL == pdata) || (NULL == arg)) {
-    printf("Invalid context pointer or user arg\n");
+  if ((NULL == pctx) || (NULL == arg)) {
+    LOGSTR("Invalid context pointer or user arg\n");
     return VSCP_ERROR_INVALID_POINTER;
   }
 
@@ -239,16 +227,13 @@ vscp_link_callback_check_user(const void *pdata, const char *arg)
     p++;
   }
 
-  printf("Username: %s\n", p);
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
+  LOGSTR("Username: %s\n", p);
 
   // Save username in context for later password validation
   strncpy(pctx->user, p, VSCP_LINK_MAX_USER_NAME_LENGTH);
-  printf("Username: %s\n", pctx->user);
+  LOGSTR("Username: %s\n", pctx->user);
 
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_USENAME_OK, strlen(VSCP_LINK_MSG_USENAME_OK), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_USENAME_OK);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -257,24 +242,18 @@ vscp_link_callback_check_user(const void *pdata, const char *arg)
 //
 
 int
-vscp_link_callback_check_password(const void *pdata, const char *arg)
+vscp_link_callback_check_password(vscp_link_ctx_t *pctx, const char *arg)
 {
-  if ((NULL == pdata) || (NULL == arg)) {
-    printf("Invalid context pointer or password arg\n");
+  if ((NULL == pctx) || (NULL == arg)) {
+    LOGSTR("Invalid context pointer or password arg\n");
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
   // Must have a username before a password
   if (!strlen(pctx->user)) {
-    HAL_UART_Transmit(&huart1,
-                      (uint8_t *) VSCP_LINK_MSG_NEED_USERNAME,
-                      strlen(VSCP_LINK_MSG_NEED_USERNAME),
-                      HAL_MAX_DELAY);
-    printf("Password: No username yet\n");
-    return VSCP_ERROR_SUCCESS;
+    vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_NEED_USERNAME);
+    LOGSTR("Password: No username yet\n");
+    return VSCP_ERROR_CREDENTIALS;
   }
 
   // trim password
@@ -283,8 +262,8 @@ vscp_link_callback_check_password(const void *pdata, const char *arg)
     p++;
   }
 
-  printf("Username:'%s'\n", pctx->user);
-  printf("Password '%s'\n", p);
+  LOGSTR("Username:'%s'\n", pctx->user);
+  LOGSTR("Password '%s'\n", p);
 
   // if (0 == strcmp(pctx->user, "admin") && 0 == strcmp(p, "secret")) {
 
@@ -296,15 +275,12 @@ vscp_link_callback_check_password(const void *pdata, const char *arg)
     pctx->user[0]    = '\0';
     pctx->bValidated = false;
     pctx->privLevel  = 0;
-    HAL_UART_Transmit(&huart1,
-                      (uint8_t *) VSCP_LINK_MSG_PASSWORD_ERROR,
-                      strlen(VSCP_LINK_MSG_PASSWORD_ERROR),
-                      HAL_MAX_DELAY);
-    printf("Credentials: Invalid\n");
-    return VSCP_ERROR_SUCCESS;
+    vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_PASSWORD_ERROR);
+    LOGSTR("Credentials: Invalid\n");
+    return VSCP_ERROR_CREDENTIALS;
   }
 
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_PASSWORD_OK, strlen(VSCP_LINK_MSG_PASSWORD_OK), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_PASSWORD_OK);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -313,16 +289,13 @@ vscp_link_callback_check_password(const void *pdata, const char *arg)
 //
 
 int
-vscp_link_callback_challenge(const void *pdata, const char *arg)
+vscp_link_callback_challenge(vscp_link_ctx_t *pctx, const char *arg)
 {
   char buf[80];
   char random_data[32];
-  if ((NULL == pdata) || (NULL == arg)) {
+  if ((NULL == pctx) || (NULL == arg)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   const char *p = arg;
   while (*p && isspace((unsigned char) *p)) {
@@ -357,7 +330,7 @@ vscp_link_callback_challenge(const void *pdata, const char *arg)
   buf[pos++] = '\n';
   buf[pos]   = '\0';
 
-  HAL_UART_Transmit(&huart1, (uint8_t *) buf, strlen(buf), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, buf);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -366,14 +339,11 @@ vscp_link_callback_challenge(const void *pdata, const char *arg)
 //
 
 int
-vscp_link_callback_check_authenticated(const void *pdata)
+vscp_link_callback_check_authenticated(vscp_link_ctx_t *pctx)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   if (pctx->bValidated) {
     return VSCP_ERROR_SUCCESS;
@@ -387,14 +357,11 @@ vscp_link_callback_check_authenticated(const void *pdata)
 //
 
 int
-vscp_link_callback_check_privilege(const void *pdata, uint8_t priv)
+vscp_link_callback_check_privilege(vscp_link_ctx_t *pctx, uint8_t priv)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   if (pctx->privLevel >= priv) {
     return VSCP_ERROR_SUCCESS;
@@ -408,16 +375,13 @@ vscp_link_callback_check_privilege(const void *pdata, uint8_t priv)
 //
 
 int
-vscp_link_callback_test(const void *pdata, const char *arg)
+vscp_link_callback_test(vscp_link_ctx_t *pctx, const char *arg)
 {
-  if ((NULL == pdata) || (NULL == arg)) {
+  if ((NULL == pctx) || (NULL == arg)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_OK, strlen(VSCP_LINK_MSG_OK), HAL_MAX_DELAY);
+  vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_OK);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -426,97 +390,37 @@ vscp_link_callback_test(const void *pdata, const char *arg)
 //
 
 /*
-  A client sends an event to us. On some devices (gateways) this event
-  will be forwarded on another interface (e.g. CAN, Modbus, etc). On other 
-  devices like this demo device, the event should be processed internally 
-  and not sent on any other interface. 
+  A client sends an event. On some devices (gateways) this event
+  will be forwarded on another interface (e.g. CAN, Modbus, etc). On other
+  devices like this demo device, the event should be processed internally
+  and not sent on any other interface.
 */
 
 int
-vscp_link_callback_send(const void *pdata, vscp_event_t *pev)
+vscp_link_callback_send(vscp_link_ctx_t *pctx, vscp_event_t *pev)
 {
-  if ((NULL == pdata) || (NULL == pev)) {
+  if ((NULL == pctx) || (NULL == pev)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
+  // If the event should be sent through another interface, we write 
+  // the event to the fifo and process it later in the main loop. 
+  // But since this demo firmware does not have any other interfaces, 
+  // we can directly process the event here without going through the fifo. 
+  // This is just to demonstrate how to send an event from the client and 
+  // have it processed by the firmware.
+
+  // if (!vscp_fifo_write(&pctx->fifoEventsOut, pev)) {
+  //   LOGSTR("Outgoing fifo full, cannot accept event from client\n");
+  //   return VSCP_ERROR_FIFO_FULL;
+  // }
 
   // Update send statistics
   pctx->statistics.cntTransmitFrames++;
   pctx->statistics.cntTransmitData += pev->sizeData;
 
-  // Mark this event as coming from this interface
-  pev->obid = pctx->sock;
-
-  // Check for Level II event
-  if (pev->vscp_class > 1024) {}
-  // Check for proxy event
-  else if (pev->vscp_class > 512) {
-    ;
-  }
-  // Level I event. If addressed to nodeid = 0
-  // and VSCP_CLASS1_PROTOCOL it is addressed to us
-  // and we should handle it. If not send event
-  // on the TWAI interface.
-  else {
-    if ((VSCP_CLASS1_PROTOCOL == pev->vscp_class) && (0 == pev->GUID[15])) {
-      ;
-    }
-    else {
-      /*
-      can4vscp_frame_t tx_msg;
-      tx_msg.data_length_code = pev->sizeData;
-      tx_msg.extd             = 1;
-      tx_msg.identifier =
-        pev->GUID[0] + (pev->vscp_type << 8) + (pev->vscp_class << 16) + (((pev->head >> 5) & 7) << 26);
-      can4vscp_send(&tx_msg, portMAX_DELAY);
-      */
-      printf("Transmitted start command");
-    }
-  }
-
-  // Write event to receive fifo
-
-  // vscpexentEx *pnew = vscp_fwhlp_mkEventCopy(pex);
-  // if (NULL == pnew) {
-  //   return VSCP_ERROR_MEMORY;
-  // }
-  // else {
-  //   if (!vscp_fifo_write(&fifoEventsIn, pnew)) {
-  //     vscp_fwhlp_deleteEvent(&pnew);
-  //     vscp_fwhlp_deleteEvent(&pex);
-  //     pctx->statistics.cntOverruns++;
-  //     return VSCP_ERROR_TRM_FULL;
-  //   }
-  // }
-
-  // Write to send buffer of other interfaces
-  for (int i = 0; i < BLINKY_MAX_TCP_CONNECTIONS; i++) {
-    // if (pctx->sock != i) {
-    //   vscp_event_ex_t *pnew = vscp_fwhlp_mkEventCopy(pex);
-    //   if (NULL == pnew) {
-    //     vscp_fwhlp_deleteEvent(&pnew);
-    //     vscp_fwhlp_deleteEvent(&pex);
-    //     return VSCP_ERROR_MEMORY;
-    //   }
-    //   else {
-    //     if (!vscp_fifo_write(&gctx[i].fifoEventsOut, pnew)) {
-    //       vscp_fwhlp_deleteEvent(&pnew);
-    //       vscp_fwhlp_deleteEvent(&pex);
-    //       gctx[i].statistics.cntOverruns++;
-    //       return VSCP_ERROR_TRM_FULL;
-    //     }
-    //   }
-    // }
-  }
-
-  // Event is not needed anymore
-  // vscp_fwhlp_deleteEvent(&pex);
-
-  // We own the event from now on and must
-  // delete it and it's data when we are done
-  // with it
+  // Forward event to VSCP stack for processing (e.g. to be sent on other interfaces, etc)
+  vscp_frmw2_handle_protocol_event((vscp_frmw2_firmware_context_t *)pctx->user_data, pev);
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -524,90 +428,30 @@ vscp_link_callback_send(const void *pdata, vscp_event_t *pev)
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_link_callback_retr
 //
+// Client polls for an event.
+//
 
 int
-vscp_link_callback_retr(const void *pdata, vscp_event_t **pev)
+vscp_link_callback_retr(vscp_link_ctx_t *pctx, vscp_event_t **ppev)
 {
-  // BaseType_t rv;
-  // can4vscp_frame_t msg = {};
 
-  if ((NULL == pdata) || (NULL == pev)) {
+  if ((NULL == pctx) || (NULL == ppev)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  uint8_t dlc = 3;     // CAN Data length code. TODO
-  uint32_t id = 0x123; // CAN id. TODO
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  // Check if there is a TWAI message in the receive queue
-  // if (pdPASS != (rv = xQueueReceive(tr_tcpsrv[pctx->id].fromcan_queue, &msg, 100))) {
-  //   return VSCP_ERROR_RCV_EMPTY;
-  // }
-
-  // OK we have a message and should return it as a VSCP event
-  // Allocate a new event
-  *pev = (vscp_event_t *) malloc(sizeof(vscpEvent));
-  if (NULL == *pev) {
-    return VSCP_ERROR_MEMORY;
+  // Check if there is an event in the out queue
+  if (!vscp_fifo_read(&pctx->fifoEventsOut, ppev)) {
+    return VSCP_ERROR_RCV_EMPTY;
   }
 
-  // Clear event
-  memset(*pev, 0, sizeof(vscpEvent));
-
-  // We use socket id as obid
-  (*pev)->obid = pctx->sock;
-
-  // Allocate data if the message has data
-  if (dlc) {
-    (*pev)->pdata = (uint8_t *) malloc(dlc);
-    if (NULL == (*pev)->pdata) {
-      free(*pev);
-      *pev = NULL;
-      return VSCP_ERROR_MEMORY;
-    }
-    // Copy in data
-    (*pev)->sizeData = dlc;
-    // memcpy((*pev)->pdata, msg.data, dlc);
+  // We should have a valid pointer to an event here
+  if (NULL == *ppev) {
+    return VSCP_ERROR_INVALID_POINTER;
   }
 
-  printf("--> Event fetched %X", (unsigned int) id);
-
-  // UBaseType_t cnt = uxQueueMessagesWaiting(tr_tcpsrv[pctx->id].fromcan_queue);
-  // uint8_t cnt = 0; // TODO
-  // printf("count=%u %d", cnt, rv);
-
-  (*pev)->head       = (id >> (26 - 5)) & 0x00e0;
-  (*pev)->timestamp  = usec_now();
-  (*pev)->vscp_class = (id >> 16) & 0x1ff;
-  (*pev)->vscp_type  = (id >> 8) & 0xff;
-
-  // GUID
-  memcpy((*pev)->GUID, g_persistent.guid, 16);
-
-  // Set nickname
-  (*pev)->GUID[14] = 0x00; // MSB of Node ID is never used for CAN4VSCP
-  (*pev)->GUID[15] = id & 0xff;
-  (*pev)->sizeData = dlc;
-  // Copy in data if any
-  if (dlc) {
-    // memcpy((*pev)->pdata, msg.data, dlc);
-  }
-  // Time data set to null => first interface with this info should
-  // set timing data
-  (*pev)->year = (*pev)->month = (*pev)->day = (*pev)->hour = (*pev)->minute = (*pev)->second = 0;
-
-  if (!vscp_fwhlp_doLevel2Filter(*pev, &pctx->filter)) {
-    free((*pev)->pdata);
-    free(*pev);
-    *pev = NULL;
-    return VSCP_ERROR_SUCCESS; // Filter out == OK
-  }
-
-  // Update receive statistics
-  pctx->statistics.cntReceiveFrames++;
-  pctx->statistics.cntReceiveData += (*pev)->sizeData;
+  // Update send statistics
+  pctx->statistics.cntTransmitFrames++;
+  pctx->statistics.cntTransmitData += (*ppev)->sizeData;
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -617,14 +461,11 @@ vscp_link_callback_retr(const void *pdata, vscp_event_t **pev)
 //
 
 int
-vscp_link_callback_enable_rcvloop(const void *pdata, int bEnable)
+vscp_link_callback_enable_rcvloop(vscp_link_ctx_t *pctx, int bEnable)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   pctx->bRcvLoop          = bEnable;
   pctx->last_rcvloop_time = HAL_GetTick();
@@ -637,18 +478,15 @@ vscp_link_callback_enable_rcvloop(const void *pdata, int bEnable)
 //
 
 int
-vscp_link_callback_get_rcvloop_status(const void *pdata, int *pRcvLoop)
+vscp_link_callback_get_rcvloop_status(vscp_link_ctx_t *pctx, int *pRcvLoop)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
   if (NULL == pRcvLoop) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   *pRcvLoop = pctx->bRcvLoop;
 
@@ -660,36 +498,28 @@ vscp_link_callback_get_rcvloop_status(const void *pdata, int *pRcvLoop)
 //
 
 int
-vscp_link_callback_chkData(const void *pdata, uint16_t *pcount)
+vscp_link_callback_chkData(vscp_link_ctx_t *pctx, uint16_t *pcount)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  //*pcount     = TRANSMIT_FIFO_SIZE - vscp_fifo_getFree(&pctx->fifoEventsOut);
-  //*pcount = uxQueueMessagesWaiting(tr_tcpsrv[pctx->id].fromcan_queue);
-
+  *pcount     = OUTGOING_FIFO_SIZE -vscp_fifo_getFree(&pctx->fifoEventsOut);
   return VSCP_ERROR_SUCCESS;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_link_callback_clrAll
+// vscp_link_callback_clrall
 //
 
 int
-vscp_link_callback_clrAll(const void *pdata)
+vscp_link_callback_clrall(vscp_link_ctx_t *pctx)
 {
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Get pointer to context
-  //vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  // xQueueReset(tr_tcpsrv[pctx->id].fromcan_queue);
+  vscp_fifo_clear(&pctx->fifoEventsOut);
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -699,14 +529,11 @@ vscp_link_callback_clrAll(const void *pdata)
 //
 
 int
-vscp_link_callback_get_channel_id(const void *pdata, uint16_t *pchid)
+vscp_link_callback_get_channel_id(vscp_link_ctx_t *pctx, uint16_t *pchid)
 {
-  if ((NULL == pdata) || (NULL == pchid)) {
+  if ((NULL == pctx) || (NULL == pchid)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   *pchid = pctx->sock;
 
@@ -718,9 +545,9 @@ vscp_link_callback_get_channel_id(const void *pdata, uint16_t *pchid)
 //
 
 int
-vscp_link_callback_get_guid(const void *pdata, uint8_t *pguid)
+vscp_link_callback_get_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
 {
-  if ((NULL == pdata) || (NULL == pguid)) {
+  if ((NULL == pctx) || (NULL == pguid)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
@@ -733,9 +560,9 @@ vscp_link_callback_get_guid(const void *pdata, uint8_t *pguid)
 //
 
 int
-vscp_link_callback_set_guid(const void *pdata, uint8_t *pguid)
+vscp_link_callback_set_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
 {
-  if ((NULL == pdata) || (NULL == pguid)) {
+  if ((NULL == pctx) || (NULL == pguid)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
@@ -748,9 +575,9 @@ vscp_link_callback_set_guid(const void *pdata, uint8_t *pguid)
 //
 
 int
-vscp_link_callback_get_version(const void *pdata, uint8_t *pversion)
+vscp_link_callback_get_version(vscp_link_ctx_t *pctx, uint8_t *pversion)
 {
-  if ((NULL == pdata) || (NULL == pversion)) {
+  if ((NULL == pctx) || (NULL == pversion)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
@@ -767,14 +594,11 @@ vscp_link_callback_get_version(const void *pdata, uint8_t *pversion)
 //
 
 int
-vscp_link_callback_setFilter(const void *pdata, vscpEventFilter *pfilter)
+vscp_link_callback_setFilter(vscp_link_ctx_t *pctx, vscpEventFilter *pfilter)
 {
-  if ((NULL == pdata) || (NULL == pfilter)) {
+  if ((NULL == pctx) || (NULL == pfilter)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   pctx->filter.filter_class    = pfilter->filter_class;
   pctx->filter.filter_type     = pfilter->filter_type;
@@ -789,14 +613,11 @@ vscp_link_callback_setFilter(const void *pdata, vscpEventFilter *pfilter)
 //
 
 int
-vscp_link_callback_setMask(const void *pdata, vscpEventFilter *pfilter)
+vscp_link_callback_setMask(vscp_link_ctx_t *pctx, vscpEventFilter *pfilter)
 {
-  if ((NULL == pdata) || (NULL == pfilter)) {
+  if ((NULL == pctx) || (NULL == pfilter)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   pctx->filter.mask_class    = pfilter->mask_class;
   pctx->filter.mask_type     = pfilter->mask_type;
@@ -811,14 +632,11 @@ vscp_link_callback_setMask(const void *pdata, vscpEventFilter *pfilter)
 //
 
 int
-vscp_link_callback_statistics(const void *pdata, vscp_statistics_t *pStatistics)
+vscp_link_callback_statistics(vscp_link_ctx_t *pctx, vscp_statistics_t *pStatistics)
 {
-  if ((NULL == pdata) || (NULL == pStatistics)) {
+  if ((NULL == pctx) || (NULL == pStatistics)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   memcpy(pStatistics, &pctx->statistics, sizeof(vscp_statistics_t));
 
@@ -830,14 +648,11 @@ vscp_link_callback_statistics(const void *pdata, vscp_statistics_t *pStatistics)
 //
 
 int
-vscp_link_callback_info(const void *pdata, vscp_status_t *pstatus)
+vscp_link_callback_info(vscp_link_ctx_t *pctx, vscp_status_t *pstatus)
 {
-  if ((NULL == pdata) || (NULL == pstatus)) {
+  if ((NULL == pctx) || (NULL == pstatus)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   memcpy(pstatus, &pctx->status, sizeof(vscp_status_t));
 
@@ -849,18 +664,15 @@ vscp_link_callback_info(const void *pdata, vscp_status_t *pstatus)
 //
 
 int
-vscp_link_callback_rcvloop(const void *pdata, vscp_event_t **pev)
+vscp_link_callback_rcvloop(vscp_link_ctx_t *pctx, vscp_event_t **pev)
 {
   // BaseType_t rv;
   // twai_message_t msg = {};
 
   // Check pointer
-  if ((NULL == pdata) || (NULL == pev)) {
+  if ((NULL == pctx) || (NULL == pev)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   // Every second output '+OK\r\n' in rcvloop mode
   if ((HAL_GetTick() - pctx->last_rcvloop_time) > 1000000) {
@@ -868,7 +680,7 @@ vscp_link_callback_rcvloop(const void *pdata, vscp_event_t **pev)
     return VSCP_ERROR_TIMEOUT;
   }
 
-  return vscp_link_callback_retr(pdata, pev);
+  return vscp_link_callback_retr(pctx, pev);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -876,15 +688,12 @@ vscp_link_callback_rcvloop(const void *pdata, vscp_event_t **pev)
 //
 
 int
-vscp_link_callback_wcyd(const void *pdata, uint64_t *pwcyd)
+vscp_link_callback_wcyd(vscp_link_ctx_t *pctx, uint64_t *pwcyd)
 {
   // Check pointers
-  if ((NULL == pdata) || (NULL == pwcyd)) {
+  if ((NULL == pctx) || (NULL == pwcyd)) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  // vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   // TODO
   *pwcyd = VSCP_SERVER_CAPABILITY_TCPIP | VSCP_SERVER_CAPABILITY_DECISION_MATRIX | VSCP_SERVER_CAPABILITY_IP4 |
@@ -899,10 +708,10 @@ vscp_link_callback_wcyd(const void *pdata, uint64_t *pwcyd)
 //
 
 int
-vscp_link_callback_shutdown(const void *pdata)
+vscp_link_callback_shutdown(vscp_link_ctx_t *pctx)
 {
   // Check pointers
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
 
@@ -914,74 +723,18 @@ vscp_link_callback_shutdown(const void *pdata)
 //
 
 int
-vscp_link_callback_restart(const void *pdata)
+vscp_link_callback_restart(vscp_link_ctx_t *pctx)
 {
   // Check pointers
-  if (NULL == pdata) {
+  if (NULL == pctx) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-
-  // Get pointer to context
-  // vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
 
   NVIC_SystemReset();
 
   return VSCP_ERROR_SUCCESS;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// vscp_link_callback_bretr
-//
-
-int
-vscp_link_callback_bretr(const void *pdata)
-{
-  // Check pointers
-  if (NULL == pdata) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  // Get pointer to context
-  // vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_link_callback_bsend
-//
-
-int
-vscp_link_callback_bsend(const void *pdata)
-{
-  // Check pointers
-  if (NULL == pdata) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  // Get pointer to context
-  // vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_link_callback_sec
-//
-
-int
-vscp_link_callback_sec(const void *pdata)
-{
-  // Check pointers
-  if (NULL == pdata) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  // Get pointer to context
-  // vscp_link_ctx_t *pctx = (vscp_link_ctx_t *) pdata;
-
-  return VSCP_ERROR_SUCCESS;
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_link_callback_disconnect
@@ -994,27 +747,12 @@ vscp_link_callback_disconnect(vscp_link_ctx_t *pctx)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // Send disconnect command to WIZnet IP20 module
-  char buf[80];
-  wiznet_ip20_send_command("DD+OK\r\n", buf, sizeof(buf), 1000);
+  // Restart ethernet module (will be ready for new connections again)
+  wiznet_ip20_command_mode();
+  wiznet_ip20_restart();
+  setContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// vscp_link_callback_clrall
-//
 
-int
-vscp_link_callback_clrall(vscp_link_ctx_t *pctx)
-{
-  if (NULL == pctx) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  vscp_fifo_clear(&pctx->fifoEventsIn);
-  vscp_fifo_clear(&pctx->fifoEventsOut);
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) VSCP_LINK_MSG_OK, strlen(VSCP_LINK_MSG_OK), HAL_MAX_DELAY);
-  return VSCP_ERROR_SUCCESS;
-}
