@@ -172,10 +172,10 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .bUse16BitNickname              = 0, // 16-bit nickname. Default is false. Only for level I (FALSE)
   .bInterestedInAllEvents         = 0, // TRUE if interested in all events. If FALSE
 
-  .interval_heartbeat = 5000, // Interval for heartbeats in milli-seconds (0=off)
-  .last_heartbeat     = 0, // Time for last heartbeat send
-  .interval_caps      = 0, // Interval for capabilities events in milli-seconds (0=off)
-  .last_caps          = 0, // Time for last caps send
+  .interval_heartbeat = 30000, // Interval for heartbeats in milli-seconds (0=off)
+  .last_heartbeat     = 0,     // Time for last heartbeat send
+  .interval_caps      = 60000, // Interval for capabilities events in milli-seconds (0=off)
+  .last_caps          = 0,     // Time for last caps send
 
   // Decision matrix
   .pDm         = NULL, // Pointer to decision matrix storage (NULL if no DM).
