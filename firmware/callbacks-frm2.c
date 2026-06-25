@@ -61,9 +61,9 @@
 
 extern char g_ipaddrstr[20];
 extern char g_macaddrstr[20];
-extern register_union_t g_registers; // Global register storage
+extern register_union_t g_registers;             // Global register storage
 extern volatile uint32_t g_user_reg_millisecond; // Millisecond counter register, updated every 1 ms
-extern volatile uint8_t g_user_reg_status; // Status register, non-persistent 
+extern volatile uint8_t g_user_reg_status;       // Status register, non-persistent
 
 // ****************************************************************************
 //                        VSCP protocol callbacks
@@ -203,8 +203,6 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
   return VSCP_ERROR_SUCCESS;
 }
 
-
-
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_write_user_reg
 //
@@ -224,7 +222,15 @@ vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t
     update_persistent_storage();
   }
   else if (REG_DEVICE_STATUS == reg) {
-    g_user_reg_status = val; // Non persistent
+    // Only the LD can be set/reset
+    g_user_reg_status |= val & BLINKY_STATUS_LED_ON; // Non persistent
+    // Update the LED state based on the status register
+    if (g_user_reg_status & BLINKY_STATUS_LED_ON) {
+      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET); // Turn on LED
+    }
+    else {
+      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET); // Turn off LED
+    }
   }
   else if (REG_DEVICE_CONTROL == reg) {
     g_registers.data.control = val;
@@ -248,6 +254,12 @@ vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t
   }
   else if (REG_DEVICE_BUTTON_SUBZONE == reg) {
     g_registers.data.button_subzone = val;
+    update_persistent_storage();
+  }
+  // Writing to the counter reset it
+  else if (REG_DEVICE_COUNTER_0 == reg || REG_DEVICE_COUNTER_1 == reg || REG_DEVICE_COUNTER_2 == reg ||
+           REG_DEVICE_COUNTER_3 == reg) {
+    g_user_reg_millisecond = 0; // Reset the millisecond counter register;
     update_persistent_storage();
   }
   else {
