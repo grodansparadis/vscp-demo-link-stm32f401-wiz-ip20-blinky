@@ -52,36 +52,41 @@ typedef enum {
  * @brief Structure representing the persistent configuration of the node.
  *
  * This structure holds the persistent configuration data for the node.
- * The GUID, nickname, user credentials, etc aree often in this storage but
+ * The GUID, nickname, user credentials, etc are often in this storage but
  * are hardcoded in this demo.
  * The storage is used to store and retrieve configuration information that
  * should persist across device resets or power cycles.
+ *
+ * 'status' and 'millisecond_counter' are not persistent in this demo and
+  * are not stored in flash. They are included here for completeness and to
+  * illustrate how they would be part of the user registers in a full implementation.
  */
 
   typedef struct registers {
   uint8_t zone;                 /**< Zone for the device [P]*/
   uint8_t subzone;              /**< Subzone for the device [P] */
-  uint8_t status;               /**< Status for the device [P] */
+  // uint8_t status;               /**< Status for the device [NON PERSISTENT] */
   uint8_t control;              /**< Control for the device [P] */
   uint16_t blink_interval;      /**< Blink interval for the device [P] */
-  uint32_t millisecond_counter; /**< Millisecond counter for the device [P] */
+  //uint32_t millisecond_counter; /**< Millisecond counter for the device [NON PERSISTENT] */
   uint8_t button_zero_opt_byte; /**< Button option byte for the device [P] */
   uint8_t button_zone;          /**< Button zone for the device [P] */
   uint8_t button_subzone;       /**< Button subzone for the device [P] */
-  uint8_t nickname_id;          /**< Nickname ID for the device [P] */
-  uint8_t manufacturer_id[4];   /**< Manufacturer ID for the device [P] */
-  uint8_t guid[16];             /**< GUID for the device [P] */
   uint8_t dm[32];               /**< Decision matrix for the device [P] 4 * 8 */
-  uint16_t nickname;             /**< Nickname for the device [P] */
-  uint8_t userid[5];            /**< User name for authentication [P] */
-  uint8_t user[16];             /**< Password for authentication [P] */
-  uint8_t password[32];         /**< Reserved for future use [P] */
+  // Standard registers persistent data
+  uint16_t nickname;             /**< Nickname for the device (std registers) [P] */
+  uint8_t userdata[5];            /**< User data for the device (std registers) [P] */
+  uint8_t manufacturer_id[4];   /**< Manufacturer ID for the device (std registers) [P] */
+  // NOT USE HERE, but normally used for persistent storage of GUID, user, and password
+  //uint8_t guid[16];             /**< GUID for the device (std registers) [P] */
+  //uint8_t user[16];             /**< Password for authentication [P] */
+  //uint8_t password[32];         /**< Reserved for future use [P] */
 } registers_t;
 
 typedef union {
   registers_t data;
-  // Align storage to the number of 32-bit words needed
-  uint32_t word_array[sizeof(registers_t) / 4 + (sizeof(registers_t ) % 4 != 0)];
+  // Align storage to the number of 16-bit words needed
+  uint16_t word_array[sizeof(registers_t) / 2 + (sizeof(registers_t ) % 2 != 0)];
 } register_union_t;
 
 /* USER CODE END ET */
@@ -103,6 +108,24 @@ Error_Handler(void);
 /* USER CODE BEGIN EFP */
 
 /*!
+  * @brief  Get a line of input from UART1 with a timeout.
+  *
+  * This function reads characters from UART1 into the provided output buffer
+  * until a newline character is received or the specified timeout is reached.
+  * The output buffer will be null-terminated. If the buffer is filled before
+  * a newline is received, the function will return an error.
+  *
+  * @param  out: Pointer to the output buffer where the line will be stored.
+  * @param  max_len: Maximum length of the output buffer (including null terminator).
+  * @param  timeout_ms: Timeout in milliseconds to wait for a complete line.
+  * @retval int Returns 1 if a complete line was received, 0 if a timeout occurred,
+  *             or -1 if an error occurred (e.g., buffer overflow).
+  */
+
+int
+uart1_rx_getline(char *out, size_t max_len, uint16_t timeout_ms);
+
+/*!
  * @brief Set the GUID for the device.
  *
  * This function sets the GUID (Globally Unique Identifier) for the device. The GUID is a 16-byte unique identifier
@@ -120,14 +143,8 @@ setGUID(uint8_t *const pguid);
  * @param pctx Pointer to context
  */
 void
-setLinkContextDefaults(vscp_link_ctx_t *pctx);
+resetLinkContextDefaults(vscp_link_ctx_t *pctx);
 
-/*!
- * @brief Set defaults for the Firmware Context Defaults object
- * @param pctx Pointer to context
- */
-void
-setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx);
 
 /*!
  * @brief  Restart the WIZnet IP20 module to apply new settings.

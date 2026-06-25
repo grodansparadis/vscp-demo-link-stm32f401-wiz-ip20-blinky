@@ -46,6 +46,8 @@
 #include "vscp-compiler.h"
 #include "vscp-projdefs.h"
 
+#include <flash_storage.h>
+
 #include <vscp-fifo.h>
 
 #include "vscp-link-protocol.h"
@@ -59,11 +61,27 @@
 
 extern char g_ipaddrstr[20];
 extern char g_macaddrstr[20];
-extern struct _eeprom_ eeprom;
+extern register_union_t g_registers; // Global register storage
+extern volatile uint32_t g_user_reg_millisecond; // Millisecond counter register, updated every 1 ms
+extern volatile uint8_t g_user_reg_status; // Status register, non-persistent 
 
 // ****************************************************************************
 //                        VSCP protocol callbacks
 // ****************************************************************************
+
+///////////////////////////////////////////////////////////////////////////////
+// update_persistent_storage(void)
+//
+
+static void
+update_persistent_storage(void)
+{
+  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
+                                    g_registers.word_array,
+                                    sizeof(register_union_t) / sizeof(uint16_t))) {
+    LOGSTR("Failed to write flash storage\r\n");
+  }
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_get_ms
@@ -138,91 +156,45 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
   }
 
   if (REG_DEVICE_ZONE == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_DEVICE_ZONE);
+    *pval = g_registers.data.zone;
   }
   else if (REG_DEVICE_SUBZONE == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_DEVICE_SUBZONE);
+    *pval = g_registers.data.subzone;
   }
-  /*
-  else if (REG_LED_CTRL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_LED_CTRL);
+
+  else if (REG_DEVICE_STATUS == reg) {
+    *pval = g_user_reg_status; // Non persistent
   }
-  else if (REG_LED_STATUS == reg) {
-    *pval = 0; // TODO gpio_get(LED_PIN);
+  else if (REG_DEVICE_CONTROL == reg) {
+    *pval = g_registers.data.control;
   }
-  else if (REG_LED_BLINK_INTERVAL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_LED_BLINK_INTERVAL);
+  else if (REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
+    *pval = g_registers.data.blink_interval >> 8 & 0xff;
   }
-  else if (REG_IO_CTRL1 == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_IO_CTRL1);
+  else if (REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
+    *pval = g_registers.data.blink_interval & 0xff;
   }
-  else if (REG_IO_CTRL2 == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_IO_CTRL2);
+  else if (REG_DEVICE_COUNTER_0 == reg) {
+    *pval = g_user_reg_millisecond >> 24 & 0xff;
   }
-  else if (REG_IO_STATUS == reg) {
-    uint32_t all = 0; // TODO  gpio_get_all();
-    *pval        = (all >> 2) & 0xff;
+  else if (REG_DEVICE_COUNTER_1 == reg) {
+    *pval = g_user_reg_millisecond >> 16 & 0xff;
   }
-  else if (REG_TEMP_CTRL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_TEMP_CTRL);
+  else if (REG_DEVICE_COUNTER_2 == reg) {
+    *pval = g_user_reg_millisecond >> 8 & 0xff;
   }
-  else if (REG_TEMP_RAW_MSB == reg) {
-    float temp = read_onboard_temperature();
-    *pval      = (((uint16_t) (100 * temp)) >> 8) & 0xff;
+  else if (REG_DEVICE_COUNTER_3 == reg) {
+    *pval = g_user_reg_millisecond & 0xff;
   }
-  else if (REG_TEMP_RAW_LSB == reg) {
-    float temp = read_onboard_temperature();
-    *pval      = ((uint16_t) (100 * temp)) & 0xff;
+  else if (REG_DEVICE_BUTTON_BYTE0 == reg) {
+    *pval = g_registers.data.button_zero_opt_byte;
   }
-  else if (REG_TEMP_CORR_MSB == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_TEMP_CORR_MSB);
+  else if (REG_DEVICE_BUTTON_ZONE == reg) {
+    *pval = g_registers.data.button_zone;
   }
-  else if (REG_TEMP_CORR_LSB == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_TEMP_CORR_LSB);
+  else if (REG_DEVICE_BUTTON_SUBZONE == reg) {
+    *pval = g_registers.data.button_subzone;
   }
-  else if (REG_TEMP_INTERVAL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_TEMP_INTERVAL);
-  }
-  else if (REG_ADC0_CTRL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_ADC0_CTRL);
-  }
-  else if (REG_ADC0_MSB == reg) {
-    float adc = 0; // TODO 0; // TODO read_adc(0);
-    *pval     = (((uint16_t) (100 * adc)) >> 8) & 0xff;
-  }
-  else if (REG_ADC0_LSB == reg) {
-    float adc = 0; // TODO 0; // TODO read_adc(0);
-    *pval     = ((uint16_t) (100 * adc)) & 0xff;
-  }
-  else if (REG_ADC1_CTRL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_ADC0_CTRL);
-  }
-  else if (REG_ADC1_MSB == reg) {
-    float adc = 0; // TODO read_adc(1);
-    *pval     = (((uint16_t) (100 * adc)) >> 8) & 0xff;
-  }
-  else if (REG_ADC1_LSB == reg) {
-    float adc = 0; // TODO read_adc(1);
-    *pval     = ((uint16_t) (100 * adc)) & 0xff;
-  }
-  else if (REG_ADC2_CTRL == reg) {
-    *pval = 0; // TODO  eeprom_read(&eeprom, REG_ADC0_CTRL);
-  }
-  else if (REG_ADC2_MSB == reg) {
-    float adc = 0; // TODO 0; // TODO read_adc(2);
-    *pval     = (((uint16_t) (100 * adc)) >> 8) & 0xff;
-  }
-  else if (REG_ADC2_LSB == reg) {
-    float adc = 0; // TODO 0; // TODO read_adc(2);
-    *pval     = ((uint16_t) (100 * adc)) & 0xff;
-  }
-  else if ((REG_BOARD_ID0 >= reg) && (REG_BOARD_ID8 <= reg)) {
-    // TODO
-    // pico_unique_board_id_t boardid;
-    // pico_get_unique_board_id(&boardid);
-    // *pval = boardid.id[reg - REG_BOARD_ID0];
-  }
-    */
   else {
     // Invalid register
     return VSCP_ERROR_PARAMETER;
@@ -230,6 +202,8 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
 
   return VSCP_ERROR_SUCCESS;
 }
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_write_user_reg
@@ -242,61 +216,44 @@ vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t
   // here.
 
   if (REG_DEVICE_ZONE == reg) {
-    // TODO eeprom_write(&eeprom, REG_DEVICE_ZONE, val);
+    g_registers.data.zone = val;
+    update_persistent_storage();
   }
   else if (REG_DEVICE_SUBZONE == reg) {
-    // TODO eeprom_write(&eeprom, REG_DEVICE_SUBZONE, val);
+    g_registers.data.subzone = val;
+    update_persistent_storage();
   }
-  /*
-  else if (REG_LED_CTRL == reg) {
-    // TODO eeprom_write(&eeprom, REG_LED_CTRL, val);
+  else if (REG_DEVICE_STATUS == reg) {
+    g_user_reg_status = val; // Non persistent
   }
-  else if (REG_LED_STATUS == reg) {
-    if (val) {
-      // TODO gpio_put(LED_PIN, 1);
-    }
-    else {
-      // TODO gpio_put(LED_PIN, 0);
-    }
+  else if (REG_DEVICE_CONTROL == reg) {
+    g_registers.data.control = val;
+    update_persistent_storage();
   }
-  else if (REG_LED_BLINK_INTERVAL == reg) {
-    // TODO eeprom_write(&eeprom, REG_LED_BLINK_INTERVAL, val);
+  else if (REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
+    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0x00ff) | ((uint16_t) val << 8);
+    update_persistent_storage();
   }
-  else if (REG_IO_CTRL1 == reg) {
-    // TODO eeprom_write(&eeprom, REG_IO_CTRL1, val);
+  else if (REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
+    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0xff00) | val;
+    update_persistent_storage();
   }
-  else if (REG_IO_CTRL2 == reg) {
-    // TODO eeprom_write(&eeprom, REG_IO_CTRL2, val);
+  else if (REG_DEVICE_BUTTON_BYTE0 == reg) {
+    g_registers.data.button_zero_opt_byte = val;
+    update_persistent_storage();
   }
-  else if (REG_IO_STATUS == reg) {
+  else if (REG_DEVICE_BUTTON_ZONE == reg) {
+    g_registers.data.button_zone = val;
+    update_persistent_storage();
   }
-  else if (REG_TEMP_CTRL == reg) {
-    // TODO eeprom_write(&eeprom, REG_TEMP_CTRL, val);
+  else if (REG_DEVICE_BUTTON_SUBZONE == reg) {
+    g_registers.data.button_subzone = val;
+    update_persistent_storage();
   }
-  else if (REG_TEMP_CORR_MSB == reg) {
-    // TODO eeprom_write(&eeprom, REG_TEMP_CORR_MSB, val);
-  }
-  else if (REG_TEMP_CORR_LSB == reg) {
-    // TODO eeprom_write(&eeprom, REG_TEMP_CORR_LSB, val);
-  }
-  else if (REG_TEMP_INTERVAL == reg) {
-    // TODO eeprom_write(&eeprom, REG_TEMP_INTERVAL, val);
-  }
-  else if (REG_ADC0_CTRL == reg) {
-    // TODO eeprom_write(&eeprom, REG_ADC0_CTRL, val);
-  }
-  else if (REG_ADC1_CTRL == reg) {
-    // TODO eeprom_write(&eeprom, REG_ADC1_CTRL, val);
-  }
-  else if (REG_ADC2_CTRL == reg) {
-    // TODO eeprom_write(&eeprom, REG_ADC2_CTRL, val);
-  }*/
   else {
+    // Invalid register
     return VSCP_ERROR_PARAMETER;
   }
-
-  // Commit changes to 'eeprom'
-  // TODO eeprom_commit(&eeprom);
 
   return VSCP_ERROR_SUCCESS;
 }

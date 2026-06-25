@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f4xx_hal_gpio.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -27,8 +28,11 @@
 #include <stdint.h>
 #include <string.h>
 #include <blinky.h>
+#include <wiznet-ip20.h>
 #include <flash_storage.h>
 #include <vscp-fifo.h>
+#include <vscp-class.h>
+#include <vscp-type.h>
 #include <vscp-firmware-helper.h>
 #include <vscp-firmware-level2.h>
 #include <vscp-link-protocol.h>
@@ -116,6 +120,10 @@ char g_ipaddrstr[20] = { 0 };
 //  It is updated when we read the MAC address from the module during initialization.
 char g_macaddrstr[20] = { 0 };
 
+//----------------------------------------------------------------------------
+//                      Registers (user and r/w standard)
+//----------------------------------------------------------------------------
+
 /*!
  * @brief Structure representing the persistent configuration of the node.
  *
@@ -125,7 +133,23 @@ char g_macaddrstr[20] = { 0 };
  * The storage is used to store and retrieve configuration information that
  * should persist across device resets or power cycles.
  */
-register_union_t g_registers; // Union for registers, including decision matrix and other device settings
+
+register_union_t g_registers = { .data = {
+                                   .zone                 = 0,
+                                   .subzone              = 0,
+                                   .control              = 0b11001110, // 0b11001110
+                                   .blink_interval       = 500,
+                                   .button_zero_opt_byte = 0,
+                                   .button_zone          = 0,
+                                   .button_subzone       = 0,
+                                   .manufacturer_id      = { 0x01, 0x02, 0x03, 0x04 },
+                                   .dm                   = { 0 },
+                                   .nickname             = 0x10,
+                                   .userdata             = { 'u', 's', 'e', 'r', '\0' },
+                                 } };
+
+volatile uint8_t g_user_reg_status       = 0; // Status register for the device (std registers) [NON PERSISTENT]
+volatile uint32_t g_user_reg_millisecond = 0; // Millisecond counter (std registers) [NON PERSISTENT]
 
 //----------------------------------------------------------------------------
 //                         VSCP Binary Protocol
@@ -171,7 +195,8 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .bHighEndServerResponse         = 0, // React on high end server probe. Only level II (FALSE)
   .bEnableWriteProtectedLocations = 0, // GUID/manufacturer id (FALSE)
   .bUse16BitNickname              = 0, // 16-bit nickname. Default is false. Only for level I (FALSE)
-  .bInterestedInAllEvents         = 0, // TRUE if interested in all events. If FALSE
+  .bInterestedInAllEvents         = 1, // TRUE if interested in all events. If FALSE, only events of
+                                       // interest are sent to the application on request.
 
   .interval_heartbeat = 60000, // Interval for heartbeats in milli-seconds (0=off)
   .last_heartbeat     = 0,     // Time for last heartbeat send
@@ -283,9 +308,9 @@ static const vscp_link_ops_t link_ops = {
 
 /* Context for each possible client connection  */
 static vscp_link_ctx_t ctx_link = {
+  .id                = 0,
   .next              = NULL,
   .ops               = &link_ops,
-  .id                = 0,
   .sock              = VSCP_STATE_DISCONNECTED, // Non zero when connected
   .guid              = { 0 },
   .user              = { 0 },
@@ -298,6 +323,7 @@ static vscp_link_ctx_t ctx_link = {
   .statistics        = { 0 },
   .status            = { 0 },
   .last_rcvloop_time = 0,
+  .user              = { 0 }, // Usename is stored here while waiting for password (32 bytes)
   .user_data         = &ctx_firmware,
 };
 
@@ -313,8 +339,8 @@ SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 static void
 uart1_rx_start(void);
-static int
-uart1_rx_getline(char *out, size_t max_len, uint16_t timeout_ms);
+// int
+// uart1_rx_getline(char *out, size_t max_len, uint16_t timeout_ms);
 static int
 uart1_rx_wait_for(const char *needle, uint16_t timeout_ms);
 static int
@@ -329,6 +355,130 @@ setLinkContextDefaults(vscp_link_ctx_t *pctx);
 /* USER CODE BEGIN 0 */
 #include <stdio.h>
 #include "usart.h"
+
+/*!
+ * @brief  HAL callback – fires after each byte received via UART1 IT.
+ *         Stores the byte in the ring buffer and re-arms the IRQ.
+ */
+
+/*!
+ * @brief  EXTI callback – fires when PC13 (B1 button) changes state.
+ *
+ *         The button is active-low: pin reads 0 when pressed, 1 when released.
+ *         Both edges are enabled in GPIO_MODE_IT_RISING_FALLING, so this
+ *         callback is invoked on press and release.
+ *
+ * @param  GPIO_Pin  Pin that triggered the interrupt (should be B1_Pin).
+ */
+void
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == B1_Pin) {
+
+    // Button bounce protection (also 100nF cap)
+    static uint32_t last_edge_ms = 0;
+    uint32_t now                 = HAL_GetTick();
+    if ((now - last_edge_ms) < 30u) {
+      return; /* ignore bounce within 30 ms window */
+    }
+    last_edge_ms = now;
+
+    if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
+
+      LOGSTR("Button pressed (pin went low)\r\n");
+
+      // Set the button active bit in status register
+      g_user_reg_status |= BLINKY_STATUS_BTN_ON;
+
+      // If enabled Send a VSCP Turn-ON event to indicate the button press.
+      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.control?id=type5
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_TURNON) {
+
+        vscp_event_t *pev = vscp_fwhlp_newEvent();
+        if (NULL == pev) {
+          return;
+        }
+
+        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
+          vscp_fwhlp_deleteEvent(&pev);
+          return;
+        }
+
+        pev->vscp_class = VSCP_CLASS1_CONTROL;
+        pev->vscp_type  = VSCP_TYPE_CONTROL_TURNON;
+        pev->pdata[0]   = g_registers.data.button_zero_opt_byte;
+        pev->pdata[1]   = g_registers.data.button_zone;
+        pev->pdata[2]   = g_registers.data.button_subzone;
+
+        // Add event to the outgoing FIFO for the link protocol to send to client
+        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
+          LOGSTR("Failed to enqueue button press event\r\n");
+          vscp_fwhlp_deleteEvent(&pev);
+        }
+      }
+
+      // If enabled Send a VSCP START event to indicate the button down.
+      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type25
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_START) {
+
+        vscp_event_t *pev = vscp_fwhlp_newEvent();
+        if (NULL == pev) {
+          return;
+        }
+
+        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
+          vscp_fwhlp_deleteEvent(&pev);
+          return;
+        }
+
+        pev->vscp_class = VSCP_CLASS1_INFORMATION;
+        pev->vscp_type  = VSCP_TYPE_INFORMATION_START;
+        pev->pdata[0]   = 0; // reserved for future use;
+        pev->pdata[1]   = g_registers.data.button_zone;
+        pev->pdata[2]   = g_registers.data.button_subzone;
+
+        // Add event to the outgoing FIFO for the link protocol to send to client
+        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
+          LOGSTR("Failed to enqueue button start event\r\n");
+          vscp_fwhlp_deleteEvent(&pev);
+        }
+      }
+    }
+    else {
+      LOGSTR("Button released (pin went high)\r\n");
+
+      // Clear the button active bit in status register
+      g_user_reg_status &= ~BLINKY_STATUS_BTN_ON;
+
+      // If enabled Send a VSCP STOP event to indicate the button release.
+      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type24
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_STOP) {
+
+        vscp_event_t *pev = vscp_fwhlp_newEvent();
+        if (NULL == pev) {
+          return;
+        }
+
+        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
+          vscp_fwhlp_deleteEvent(&pev);
+          return;
+        }
+
+        pev->vscp_class = VSCP_CLASS1_INFORMATION;
+        pev->vscp_type  = VSCP_TYPE_INFORMATION_STOP;
+        pev->pdata[0]   = 0; // reserved for future use;
+        pev->pdata[1]   = g_registers.data.button_zone;
+        pev->pdata[2]   = g_registers.data.button_subzone;
+
+        // Add event to the outgoing FIFO for the link protocol to send to client
+        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
+          LOGSTR("Failed to enqueue button release event\r\n");
+          vscp_fwhlp_deleteEvent(&pev);
+        }
+      }
+    }
+  }
+}
 
 //////////////////////////////////////////////////////////////////////////
 // Retargeting printf to USART2 for debug output.
@@ -371,27 +521,6 @@ _write(int file, char *ptr, int len)
 }
 
 /*!
- * @brief  Get UART response with timeout (blocking, used during AT init only).
- * @param  buf: Buffer to store the received data.
- * @param  buf_size: Size of the buffer.
- * @param  timeout_ms: Timeout in milliseconds.
- * @retval Number of bytes received, or 0 on timeout.
- */
-
-static size_t
-getWizIp20Response(char *buf, size_t buf_size, uint32_t timeout_ms)
-{
-  memset(buf, 0, buf_size);
-  uint16_t rx_len = 0;
-  HAL_UARTEx_ReceiveToIdle(&huart1, (uint8_t *) buf, (uint16_t) (buf_size - 1), &rx_len, timeout_ms);
-  if (rx_len > 0) {
-    buf[rx_len] = '\0';
-    LOGSTR("IP20 response: %s\r\n", buf);
-  }
-  return rx_len;
-}
-
-/*!
  * @brief  Re-arm UART1 IRQ for one byte.  Call once at startup and again
  *         from HAL_UART_RxCpltCallback.
  */
@@ -400,43 +529,6 @@ static void
 uart1_rx_start(void)
 {
   HAL_UART_Receive_IT(&huart1, &uart1_rx_byte, 1);
-}
-
-/*!
- * @brief  HAL callback – fires after each byte received via UART1 IT.
- *         Stores the byte in the ring buffer and re-arms the IRQ.
- */
-
-/*!
- * @brief  EXTI callback – fires when PC13 (B1 button) changes state.
- *
- *         The button is active-low: pin reads 0 when pressed, 1 when released.
- *         Both edges are enabled in GPIO_MODE_IT_RISING_FALLING, so this
- *         callback is invoked on press and release.
- *
- * @param  GPIO_Pin  Pin that triggered the interrupt (should be B1_Pin).
- */
-void
-HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if (GPIO_Pin == B1_Pin) {
-    if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
-      /*
-        Button pressed (pin went low)
-
-        - We send Turn-ON event if configured to do so
-        - We send ON-event if configured to do so
-      */
-    }
-    else {
-      /*
-        Button released (pin went high)
-
-        - We send Turn-OFF event if configured to do so
-        - We send OFF-event if configured to do so
-      */
-    }
-  }
 }
 
 void
@@ -468,7 +560,7 @@ HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
  * @retval -1   No complete line available within the specified timeout.
  */
 
-static int
+int
 uart1_rx_getline(char *out, size_t max_len, uint16_t timeout_ms)
 {
   /* Scan the ring buffer for \r\n without consuming any bytes yet. */
@@ -702,7 +794,7 @@ setGUID(uint8_t *const pguid)
   memset(pguid, 0, 16); /* Clear the GUID buffer */
   pguid[0] = 0xFD;      /* VSCP reserved prefix for MCU-based GUIDs */
   pguid[1] = 0x00;      /* Manufacturer code for STMicroelectronics */
-  pguid[2] = 0x02;      
+  pguid[2] = 0x02;
 
   uid      = HAL_GetUIDw0(); // Words 0 (bits 31:0)
   pguid[3] = (uid >> 24) & 0xFF;
@@ -722,71 +814,7 @@ setGUID(uint8_t *const pguid)
   pguid[13] = (uid >> 8) & 0xFF;
   pguid[14] = uid & 0xFF;
 
-  pguid[15] = 0x00; // Last byte set to node ID
-}
-
-/*!
- * @brief  Initialize the VSCP link context with default values.
- * @param  pctx: Pointer to the context structure to initialize.
- *
- * As we only have one channel we can get away with a single global context
- * object, but we define this function to set defaults for it and to reset
- * it between connections if needed.
- */
-
-void
-setLinkContextDefaults(vscp_link_ctx_t *pctx)
-{
-  pctx->id   = 0;
-  pctx->next = NULL;
-  pctx->ops  = &link_ops;
-  pctx->sock = VSCP_STATE_DISCONNECTED; // Not connected
-  memset(pctx->user, 0, VSCP_LINK_MAX_USER_NAME_LENGTH);
-  setGUID(pctx->guid);
-  vscp_fifo_deinit(&pctx->fifoEventsOut);
-  vscp_fifo_init(&pctx->fifoEventsOut, BLINKY_OUTGOING_FIFO_SIZE);
-  vscp_fifo_deinit(&pctx->fifoEventsIn);
-  vscp_fifo_init(&pctx->fifoEventsIn, BLINKY_INCOMING_FIFO_SIZE);
-  pctx->bValidated = 0; // No credentials yet
-  pctx->privLevel  = 0; // No privileges before we are logged in
-  pctx->bRcvLoop   = 0; // Polling mode by default, can switch to RETR after login if desired
-  memset(&pctx->filter, 0, sizeof(vscpEventFilter));       // All events is received by client
-  memset(&pctx->statistics, 0, sizeof(vscp_statistics_t)); // VSCP Statistics
-  memset(&pctx->status, 0, sizeof(vscp_status_t));         // VSCP status
-  pctx->last_rcvloop_time = 0;
-}
-
-/*!
- * @brief  Initialize the VSCP firmware context with default values.
- * @param  pctx: Pointer to the context structure to initialize.
- *
- * This function sets up the firmware context with default values, including
- * the VSCP level, state, and various configuration parameters. It also
- * initializes the GUID and other identifiers for the device.
- *
- * Note: The firmware context is used by the VSCP Level II protocol stack to
- * manage device-specific settings and operations.
- */
-void
-setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx)
-{
-  pfwctx->level    = VSCP_LEVEL2;
-  pfwctx->state    = FRMW2_STATE_NONE;
-  pfwctx->substate = 0;
-
-  pfwctx->bEnableErrorReporting          = 0; // Send error reporting events (FALSE)
-  pfwctx->bEnableLogging                 = 0; // Enable logging events (FALSE)
-  pfwctx->log_id                         = 0; // Identifies log channel
-  pfwctx->log_level                      = 0; // Level for logs
-  pfwctx->bHighEndServerResponse         = 0; // React on high end server probe. Only level II (FALSE)
-  pfwctx->bEnableWriteProtectedLocations = 0; // GUID/manufacturer id (FALSE)
-  pfwctx->bUse16BitNickname              = 0; // 16-bit nickname. Default is false. Only for level I (FALSE)
-  pfwctx->bInterestedInAllEvents         = 0; // TRUE if interested in all events. If FALSE
-
-  setGUID(pfwctx->guid);
-  memset(pfwctx->mdfurl, 0, sizeof(pfwctx->mdfurl));
-  memset(pfwctx->ipaddr, 0, sizeof(pfwctx->ipaddr));
-  strncpy(pfwctx->deviceName, "Blinky demo device", sizeof(pfwctx->deviceName) - 1);
+  pguid[15] = ctx_firmware.nickname; // No nickname discobery for level II node
 }
 
 /*!
@@ -819,132 +847,6 @@ resetLinkContextDefaults(vscp_link_ctx_t *pctx)
   vscp_fifo_clear(&pctx->fifoEventsIn);
 }
 
-/*!
- * @brief  Restart the WIZnet IP20 module to apply new settings.
- *
- * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
- * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
- * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
- * restarting the module.
- *
- * Note: This function assumes that you are already in command mode before calling it.
- *
- * @retval None
- */
-/*!
- * @brief  Restart the WIZnet IP20 module to apply new settings.
- *
- * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This
- * function sends the appropriate AT command to trigger a restart of the module. The exact command may depend on the
- * module's firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for
- * restarting the module.
- *
- * Note: This function assumes that you are already in command mode before calling it.
- *
- * @retval None
- */
-void
-wiznet_ip20_restart(void)
-{
-  char buf[80];
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) "RT\r\n", 8, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 1000)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-}
-
-/*!
- * @brief  Enter WIZnet IP20 command mode and wait for the "CMD" response.
- *
- * The WIZnet IP20 module uses an AT command interface for configuration. To send
- * AT commands, we first need to enter command mode by sending "+++" with a guard
- * time before and after. After sending "+++", we wait for the "CMD" response to
- * confirm that we are in command mode before proceeding with further configuration.
- *
- * @retval 0 if successfully entered command mode, -1 on timeout or error.
- */
-int
-wiznet_ip20_command_mode(void)
-{
-  size_t rx_len;
-
-  char buf[80];
-
-  LOGSTR("WIZnet IP20 enter command mode:      \r\n");
-
-  // Enter command mode: guard time, "+++", guard time
-  HAL_Delay(500); // guard time before
-  HAL_UART_Transmit(&huart1, (uint8_t *) "+++", 3, HAL_MAX_DELAY);
-  HAL_Delay(500); // guard time after
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 1000)) {
-    LOGSTR("Received response after +++: %s\r\n", buf);
-    if (strstr(buf, "SEG:AT Mode") == 0) {
-      LOGSTR("Entered command mode successfully %s\r\n", buf);
-      return 0;
-    }
-  }
-
-  LOGSTR("Failed to enter command mode (maybe already in command mode)\r\n");
-
-  // If already in command mode this will give error but we get back to command mode anyway so we can ignore it
-  HAL_UART_Transmit(&huart1, (uint8_t *) "\r\n", 2, HAL_MAX_DELAY);
-  uart1_rx_getline(buf, sizeof(buf), 1000); // Clear any response from the "+++" command
-
-  return 0;
-}
-
-/*!
- * @brief  Save WIZnet IP20 configuration to non-volatile memory.
- *
- * After configuring the WIZnet IP20 module with the desired settings using AT commands, we need to save the
- * configuration to non-volatile memory so that it persists across power cycles. This function sends the appropriate AT
- * command to trigger the save operation on the WIZnet IP20 module. The exact command may depend on the module's
- * firmware version, so you should refer to the WIZnet IP20 documentation for the correct command to use for saving the
- * configuration.
- *
- * Note: This function assumes that you are already in command mode before calling it.
- *
- * @retval None
- */
-
-void
-wiznet_ip20_save(void)
-{
-  // For some strange reason two SV is needed to really save
-  HAL_UART_Transmit(&huart1, (uint8_t *) "SV\r\nSV\r\n", 8, HAL_MAX_DELAY);
-}
-
-/*!
- * @brief  Send an AT command to the WIZnet IP20 module and wait for a response.
- *
- * This function sends a specified AT command string to the WIZnet IP20 module over UART1 and waits for a response. The
- * response is expected to be a complete line terminated by \r\n. The function uses the uart1_rx_getline() helper
- * function to read the response from the ring buffer with a specified timeout. If a response is received within the
- * timeout, it is stored in the provided response buffer and the function returns success. If no response is received
- * within the timeout, the function returns failure.
- *
- * Note: This function assumes that you are already in command mode before calling it.
- *
- * @param cmd                The AT command string to send (should include \r\n if required by the command).
- * @param response_buf       Buffer to store the received response (should be large enough to hold expected responses).
- * @param response_buf_size  Size of the response buffer in bytes.
- * @param timeout_ms         Timeout in milliseconds to wait for a response.
- * @retval int               Returns 1 on success (response received), or 0 on failure (timeout or error).
- */
-int
-wiznet_ip20_send_command(const char *cmd, char *response_buf, size_t response_buf_size, uint16_t timeout_ms)
-{
-  char buf[100];
-  LOGSTR("WIZnet IP20 send command: %s\r\n", cmd);
-  HAL_UART_Transmit(&huart1, (uint8_t *) cmd, strlen(cmd), HAL_MAX_DELAY);
-  if (-1 == uart1_rx_getline(buf, sizeof(buf), timeout_ms)) {
-    LOGSTR("Failed to send command: %s\r\n", cmd);
-    return 0;
-  }
-  return 1;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // validate_user
 //
@@ -959,285 +861,24 @@ validate_user(const char *user, const char *password)
   return (strcmp(user, valid_user) == 0) && (strcmp(password, valid_password) == 0);
 }
 
-/*!
- * @brief  Initialize the WIZnet IP20 module with the desired network settings and link protocol configuration.
- *
- * This function sends a series of AT commands to the WIZnet IP20 module over UART1 to configure its network settings
- * (IP address, netmask, gateway, DNS) and link protocol parameters (port, operation mode, connect/disconnect strings,
- * etc.) according to the defined constants. It uses the sendCommand() helper function to send each command and wait for
- * a response. The exact commands sent depend on the specific configuration you want for your application, and you
- * should refer to the WIZnet IP20 documentation for details on the available AT commands and their syntax.
- *
- * Note: This function assumes that you have already entered command mode using goCommandMode() before calling it.
- *
- * @retval VSCP_ERROR_SUCCESS if initialization was successful, VSCP error code on error.
- */
-int
-init_wiznet_ip20(void)
-{
-  char buf[100];
-  size_t rx_len;
-
-  // Set IP address
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_IP, strlen(WIZ_IP20_IP), HAL_MAX_DELAY);
-
-  // Set netmask
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_NETMASK, strlen(WIZ_IP20_NETMASK), HAL_MAX_DELAY);
-
-  // Set gateway
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_GATEWAY, strlen(WIZ_IP20_GATEWAY), HAL_MAX_DELAY);
-
-  // Set DNS server
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_DNS, strlen(WIZ_IP20_DNS), HAL_MAX_DELAY);
-
-  // Set IP allocation mode
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_IP_ALLOCATION_METHOD,
-                    strlen(WIZ_IP20_IP_ALLOCATION_METHOD),
-                    HAL_MAX_DELAY);
-
-  // Set port
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_PORT, strlen(WIZ_IP20_PORT), HAL_MAX_DELAY);
-
-  // Set operation mode
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_OPERATION_MODE, strlen(WIZ_IP20_OPERATION_MODE), HAL_MAX_DELAY);
-
-  // Set connect string
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_CONNECT_STR, strlen(WIZ_IP20_LINK_CONNECT_STR), HAL_MAX_DELAY);
-
-  // Set disconnect string
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_DISCONNECT_STR,
-                    strlen(WIZ_IP20_LINK_DISCONNECT_STR),
-                    HAL_MAX_DELAY);
-
-  // Set Ethernet connect string
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_ETH_CONNECT_STR,
-                    strlen(WIZ_IP20_LINK_ETH_CONNECT_STR),
-                    HAL_MAX_DELAY);
-
-#if defined(BLINKY_MODE_TCP_CLIENT) || defined(BLINKY_MODE_MQTT)
-  // Remote host
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_REMOTE_HOST_IP, strlen(WIZ_IP20_REMOTE_HOST_IP), HAL_MAX_DELAY);
-
-  // Remote port
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_REMOTE_HOST_PORT, strlen(WIZ_IP20_REMOTE_HOST_PORT), HAL_MAX_DELAY);
-
-  // TCP client reconnect interval
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_CLIENT_RECONNECT,
-                    strlen(WIZ_IP20_LINK_CLIENT_RECONNECT),
-                    HAL_MAX_DELAY);
-#endif
-
-  // Data packing time in milliseconds
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_TIME, strlen(WIZ_IP20_LINK_PACKING_TIME), HAL_MAX_DELAY);
-
-  // Data packing size in bytes (0 not used)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_SIZE, strlen(WIZ_IP20_LINK_PACKING_SIZE), HAL_MAX_DELAY);
-
-  // Data packing char (0 not used, 0x0a = newline) The designated character is not included in data.
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_CHAR, strlen(WIZ_IP20_LINK_PACKING_CHAR), HAL_MAX_DELAY);
-
-  // Inactivity time in seconds (0 not used)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_INACTIVITY, strlen(WIZ_IP20_LINK_INACTIVITY), HAL_MAX_DELAY);
-
-  // Retry count (0 not used)
-  // HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_RETRY_CNT, strlen(WIZ_IP20_LINK_RETRY_CNT), HAL_MAX_DELAY);
-
-  // Keep alive (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE, strlen(WIZ_IP20_LINK_KEEP_ALIVE), HAL_MAX_DELAY);
-
-  // Keep alive interval in milliseconds
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL,
-                    strlen(WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL),
-                    HAL_MAX_DELAY);
-
-  // Keep alive retry interval in milliseconds
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL,
-                    strlen(WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL),
-                    HAL_MAX_DELAY);
-
-  // SSL close (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_SSL_CLOSE, strlen(WIZ_IP20_LINK_SSL_CLOSE), HAL_MAX_DELAY);
-
-  // Password for TCP server (0 not used)
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_TCPSRV_ENABLE_PASSWORD,
-                    strlen(WIZ_IP20_TCPSRV_ENABLE_PASSWORD),
-                    HAL_MAX_DELAY);
-
-  // #Password for TCP server (max 8 characters)
-  // HAL_UART_Transmit(&huart1,
-  //                   (uint8_t *) WIZ_IP20_TCPSRV_SET_PASSWORD,
-  //                   strlen(WIZ_IP20_TCPSRV_SET_PASSWORD),
-  //                   HAL_MAX_DELAY);
-
-  // Search id code
-  // HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_SEARCH_ID_CODE, strlen(WIZ_IP20_SEARCH_ID_CODE), HAL_MAX_DELAY);
-
-  // Enable debug messages (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_DEBUG_ENABLE, strlen(WIZ_IP20_DEBUG_ENABLE), HAL_MAX_DELAY);
-
-  // MQTT settings (not used here)
-#ifdef BLINKY_DEMO_MODE_MQTT
-  // QUmqtt_user\r\n MQTT username (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_USER, strlen(WIZ_IP20_MQTT_USER), HAL_MAX_DELAY);
-
-  // QPmqtt_password\r\n MQTT password (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_PASSWORD, strlen(WIZ_IP20_MQTT_PASSWORD), HAL_MAX_DELAY);
-
-  // QCmqtt_client_id\r\n MQTT client ID (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_CLIENT_ID, strlen(WIZ_IP20_MQTT_CLIENT_ID), HAL_MAX_DELAY);
-
-  // QK0\r\n MQTT keep alive (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_KEEP_ALIVE, strlen(WIZ_IP20_MQTT_KEEP_ALIVE), HAL_MAX_DELAY);
-
-  // QQ0\r\n MQTT QoS (0, 1, or 2)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_QOS, strlen(WIZ_IP20_MQTT_QOS), HAL_MAX_DELAY);
-
-  // Publish topic\r\n MQTT publish topic (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_PUB_TOPIC, strlen(WIZ_IP20_MQTT_PUB_TOPIC), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 1 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC0, strlen(WIZ_IP20_MQTT_SUB_TOPIC0), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 2 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC1, strlen(WIZ_IP20_MQTT_SUB_TOPIC1), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 3 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC2, strlen(WIZ_IP20_MQTT_SUB_TOPIC2), HAL_MAX_DELAY);
-
-#endif
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-/*!
- * @brief  Show the current WIZnet IP20 settings by querying the module and printing the results.
- *
- * This function sends a series of AT commands to the WIZnet IP20 module to query its current configuration settings
- * (such as IP address, netmask, gateway, DNS, operation mode, etc.) and prints the responses to the console. This can
- * be useful for debugging and verifying that the module is configured correctly after initialization.
- *
- * Note: This function assumes that you have already entered command mode using goCommandMode() before calling it.
- *
- * @retval VSCP_ERROR_SUCCESS if settings were successfully queried and displayed, VSCP error code on error.
- */
-
-int
-show_wiznet_ip20_settings(void)
-{
-  char buf[100];
-  size_t rx_len;
-
-  LOGSTR("WIZnet IP20 current settings:\r\n");
-
-  // Query product name
-  HAL_UART_Transmit(&huart1, (uint8_t *) "MN\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Query firmware version
-  HAL_UART_Transmit(&huart1, (uint8_t *) "VR\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Query MAC address
-  HAL_UART_Transmit(&huart1, (uint8_t *) "MC\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-    // Save the MAC address
-    strncpy(g_macaddrstr, buf, sizeof(g_macaddrstr) - 1);
-    g_macaddrstr[sizeof(g_macaddrstr) - 1] = '\0';
-  }
-
-  // Query operation mode
-  HAL_UART_Transmit(&huart1, (uint8_t *) "OP\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get connect string
-  HAL_UART_Transmit(&huart1, (uint8_t *) "SD\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get connect string
-  HAL_UART_Transmit(&huart1, (uint8_t *) "DD\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get UART interface
-  HAL_UART_Transmit(&huart1, (uint8_t *) "UN\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get local IP address
-  HAL_UART_Transmit(&huart1, (uint8_t *) "LI\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-    // Save the ip address
-    strncpy(g_ipaddrstr, buf, sizeof(g_ipaddrstr) - 1);
-    g_ipaddrstr[sizeof(g_ipaddrstr) - 1] = '\0';
-  }
-
-  // Get local subnet mask
-  HAL_UART_Transmit(&huart1, (uint8_t *) "SM\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get local gateway IP address
-  HAL_UART_Transmit(&huart1, (uint8_t *) "GW\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-  // Get local DNS IP address
-  HAL_UART_Transmit(&huart1, (uint8_t *) "DS\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  // Get local port number
-  HAL_UART_Transmit(&huart1, (uint8_t *) "LP\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  HAL_UART_Transmit(&huart1, (uint8_t *) "\r\n", 4, HAL_MAX_DELAY);
-  if (0 == uart1_rx_getline(buf, sizeof(buf), 500)) {
-    LOGSTR("Response: %s\r\n", buf);
-  }
-
-  return VSCP_ERROR_SUCCESS;
-}
-
 /* USER CODE END 0 */
 
-/**
- * @brief  The application entry point.
- * @retval int
- */
+///////////////////////////////////////////////////////////////////////////////
+// main
+//
+
 int
 main(void)
 {
   /* USER CODE BEGIN 1 */
   int rv;
   char buf[2672]; // Buffer for cmd responses and incoming data and event conversions
-  size_t rx_len;
-  (void) rx_len;                   // only used to capture AT response lengths during init
-  uint32_t led_blink_until    = 0; // LED blink timestamp
-  uint32_t heartbeat_interval = 0; // Heartbeat clock
-  vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
+  uint32_t now;
+  //size_t rx_len;
+  //(void) rx_len; // only used to capture AT response lengths during init
+  // uint32_t led_blink_until    = 0; // LED blink timestamp
+  // uint32_t heartbeat_interval = 0; // Heartbeat clock
+  // vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1278,10 +919,11 @@ main(void)
   uart1_rx_start();
 
   // Initialize context for client connections
-  setLinkContextDefaults(&ctx_link);
+  setGUID(ctx_link.guid);
 
-  // Initialize context for VSCP firmware stack
-  setFirmwareContextDefaults(&ctx_firmware);
+  // Both fifos empty at startup, but we initialize them here to ensure they are ready for use
+  vscp_fifo_init(&ctx_link.fifoEventsOut, BLINKY_OUTGOING_FIFO_SIZE);
+  vscp_fifo_init(&ctx_link.fifoEventsIn, BLINKY_INCOMING_FIFO_SIZE);
 
   /*
     * WIZ-IP20 initialization sequence (AT command mode, blocking)
@@ -1292,9 +934,9 @@ main(void)
 
   // rx_len = getWizIp20Response(buf, sizeof(buf), 10);
 
-  wiznet_ip20_command_mode();
-  init_wiznet_ip20();
-  show_wiznet_ip20_settings();
+  wiznet_ip20_enter_command_mode();
+  wiznet_ip20_init();
+  wiznet_ip20_show_settings();
   wiznet_ip20_save();
   wiznet_ip20_restart();
 
@@ -1303,6 +945,35 @@ main(void)
 
   // Debug print to indicate that the program has started
   LOGSTR("STM32F401 Wiznet IP20 VSCP blink demo starting\r\n");
+
+  // if (HAL_OK != flash_storage_write(0, g_registers.word_array, sizeof(register_union_t))) {
+  //     LOGSTR("Failed to write flash storage\r\n");
+  //   }
+
+  if (!flash_storage_is_valid()) {
+
+    // Handle invalid flash storage
+    LOGSTR("Flash storage is invalid. Erase and initializing to default values.\r\n");
+
+    if (HAL_OK != flash_storage_erase()) {
+      LOGSTR("Failed to erase flash storage\r\n");
+    }
+
+    if (HAL_OK != flash_storage_write_header()) {
+      LOGSTR("Failed to initialize flash storage\r\n");
+    }
+
+    if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
+                                      g_registers.word_array,
+                                      sizeof(register_union_t) / sizeof(uint16_t))) {
+      LOGSTR("Failed to write flash storage\r\n");
+    }
+  }
+  else {
+    LOGSTR("Flash storage is valid. Reading data into registers.\r\n");
+  }
+
+  flash_storage_read(FLASH_STORAGE_DATA_OFFSET, g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t));
 
   /* USER CODE END 2 */
 
@@ -1328,9 +999,9 @@ main(void)
         if (uart1_rx_scan("<CONNECT>") == 0) {
           uart1_rx_consume_through("<CONNECT>");
           LOGSTR("Received <CONNECT>\r\n");
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          led_blink_until = HAL_GetTick() + 50u;
-          ctx_link.sock   = VSCP_STATE_CONNECTED;
+          //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+          // led_blink_until = HAL_GetTick() + 50u;
+          ctx_link.sock = VSCP_STATE_CONNECTED;
           LOGSTR("State: DISCONNECTED -> CONNECTED\r\n");
           vscp_link_connect(&ctx_link);
         }
@@ -1344,8 +1015,8 @@ main(void)
         if (uart1_rx_scan("<DISCONNECT>") == 0) {
           uart1_rx_consume_through("<DISCONNECT>");
           LOGSTR("Received <DISCONNECT>\n");
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          led_blink_until = HAL_GetTick() + 50u;
+          //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+          // led_blink_until = HAL_GetTick() + 50u;
           HAL_UART_Transmit(&huart1, (uint8_t *) "+OK - Disconnect.\r\n", 19, HAL_MAX_DELAY);
           ctx_link.sock = VSCP_STATE_DISCONNECTED;
           LOGSTR("State: CONNECTED -> DISCONNECTED\r\n");
@@ -1353,8 +1024,7 @@ main(void)
         else if (uart1_rx_getline(buf, sizeof(buf), 0) == 0) {
           /* Consume and log incoming VSCP commands */
           LOGSTR("VSCP cmd: %s", buf);
-          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          // led_blink_until = HAL_GetTick() + 50u;
+          
           vscp_link_parser(&ctx_link, buf);
         }
         else if (ctx_link.bRcvLoop && ctx_link.bValidated) {
@@ -1396,23 +1066,22 @@ main(void)
         break;
     }
 
-    /* Turn LED off after 50 ms blink */
-    // if (led_blink_until != 0u && HAL_GetTick() >= led_blink_until) {
-    //   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); /* LED off */
-    //   led_blink_until = 0u;
-    // }
-
-    /* Toggle the state of pin 13 on GPIO port C */
-    // if ((HAL_GetTick() - now) >= 500) {
-    //   now = HAL_GetTick();
-    //   HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-    //   LOGSTR("Super\r\n"); // Print "Super" to the ITM console
-    //   const char msg[] = "hello\r\n";
-    //   HAL_UART_Transmit(&huart2, (uint8_t *) msg, sizeof(msg) - 1, HAL_MAX_DELAY);
-    // }
-
-    /* Wait for 500 milliseconds */
-    // HAL_Delay(500);
+    // * * * LED BLINK * * *
+    /* 
+      Toggle the state of pin 13 on GPIO port C
+      Blink if enabled in control register and if
+      blink interval is set to a non-zero value. 
+      The blink interval is in milliseconds.
+    */
+    if (g_registers.data.blink_interval && (g_registers.data.control & BLINKY_CTRL_ENABLE_LED)) {
+      if ((HAL_GetTick() - now) >= g_registers.data.blink_interval) {
+        // Toggle the LED pin
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);  
+        now = HAL_GetTick();
+        // Toggle LED active bit in status register
+        g_user_reg_status ^= BLINKY_STATUS_LED_ON;
+      }
+    }
   }
   /* USER CODE END 3 */
 }

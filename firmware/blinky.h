@@ -66,4 +66,102 @@ typedef struct {
 // line interface if the standard help text takes to much resources.
 #define BLINKY_HELP "See https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink for help\r\n"
 
+// Status register bits (register 0:6)
+#define BLINKY_STATUS_LED_ON 0x02u // Bit 1 set when LED is on, clear when LED is off
+#define BLINKY_STATUS_BTN_ON 0x01u // Bit 0 set when button is pressed, clear when button is released
+
+// Control register bits (register 0:7)
+#define BLINKY_CTRL_ENABLE_LED 0x80u // Bit 7 set to enable LED blinking, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN 0x40u // Bit 6 set to enable button, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_TURNON 0x08u  // Bit 3 set to enable button TURN-ON event, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_START 0x04u // Bit 2 set to enable button START event, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_STOP 0x02u    // Bit 1 set to enable button STOP event, clear to disable
+
+/*
+  ----------------------------------------------------------------------------
+                                   Blinky
+  ----------------------------------------------------------------------------
+*/
+
+
+/*!
+  Select **one **of the following modes for the blinky demo. This will determine how the
+  blinky demo is built and will operate. You can only select one mode at a time. If you select
+  more than one mode, you will get a compile error. If you do not select any mode,
+  you will get a compile error.
+*/
+
+// VSCP TCP/IP link protocol server mode. The device will listen for incoming TCP/IP
+// connections and respond to them. This is the default mode for the blinky demo.
+#define BLINKY_MODE_TCP_SERVER
+
+// VSCP TCP/IP link protocol client mode. The device will connect to a TCP/IP
+// server and send data to it.
+// #define BLINKY_MODE_TCP_CLIENT
+
+// VSCP UDP link protocol mode. The device will listen for
+// incoming UDP packets and respond to them.
+// #define BLINKY_MODE_UDP
+
+// VSCP multicast link protocol mode.
+// The device will listen for incoming multicast packets and respond to them.
+// #define BLINKY_MODE_MULTICAST
+
+// VSCP MQTT link protocol mode.
+// The device will connect to an MQTT broker and publish/subscribe to topics.
+// #define BLINKY_MODE_MQTT
+
+// Uncomment to get debug printouts on USART2
+// #define VSCP_ENABLE_BLINKY_DEBUG
+
+// ----------------------------------------------------------------------
+
+// Buffer
+#define BLINKY_TCPIP_BUF_MAX_SIZE (2048u)
+
+/**
+ * VSCP TCP link protocol character buffer size
+ */
+#ifndef BLINKY_DATA_BUF_SIZE
+#define BLINKY_DATA_BUF_SIZE 512
+#endif
+
+/**
+ * Max number of events in the incoming fifo (to node)
+ */
+#define BLINKY_INCOMING_FIFO_SIZE 16
+
+/**
+ * Max number of events in each of the outgoing fifo (to client)
+ */
+#define BLINKY_OUTGOING_FIFO_SIZE 16
+
+#define BLINKY_WELCOME_MSG                                                                                             \
+  "Welcome to the VSCP Blinky demo\r\n"                                                                                \
+  "STM32F401 + WIZnet IP20\r\n"                                                                                        \
+  "Version: 0.0.1 - %d\r\n"                                                                                            \
+  "Copyright (C) 2000-2026 Grodans Paradis AB\r\n"                                                                     \
+  "https://www.grodansparadis.com\r\n"                                                                                 \
+  "+OK\r\n"
+
+// System defaults
+
+
+#define BLINKY_DEFAULT_ENCRYPTION_LEVEL VSCP_ENCRYPTION_NONE // 0 = none, 1 = AES128, 2 = AES192, 3 = AES256
+#define BLINKY_DEFAULT_MODULE_ZONE      1                    // VSCP zone for module
+#define BLINKY_DEFAULT_MODULE_SUBZONE   2                    // VSCP subzone for module
+
+#define BLINKY_DEFAULT_VSCP_LINK_PORT     VSCP_LINK_PORT // defined in board-config.h
+#define BLINKY_DEFAULT_VSCP_LINK_USER     "vscp"
+#define BLINKY_DEFAULT_VSCP_LINK_PASSWORD "secret"
+
+/**
+ * Maximum number of simultaneous TCP/IP connections
+ * This is the maximum simultaneous number
+ * of connections to the server
+ */
+#define BLINKY_MAX_TCP_CONNECTIONS 1
+
+
+
 #endif

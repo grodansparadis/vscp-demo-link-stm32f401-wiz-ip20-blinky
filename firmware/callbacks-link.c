@@ -47,6 +47,7 @@
 #include "blinky.h"
 #include "tim.h"
 #include "usart.h"
+#include "wiznet-ip20.h"
 #include "build_number.h"
 
 #include <ctype.h>
@@ -110,15 +111,14 @@ vscp_link_callback_quit(vscp_link_ctx_t *pctx)
   vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_GOODBYE);
 
   // Go to command mode
-  int rv = wiznet_ip20_command_mode();
+  int rv = wiznet_ip20_enter_command_mode();
   if (rv != 0) {
     LOGSTR("Failed to enter command mode\n");
   }
 
   // Restart ethernet module (will be ready for new connections again)
-  wiznet_ip20_command_mode();
   wiznet_ip20_restart();
-  setLinkContextDefaults(pctx);
+  resetLinkContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -749,9 +749,9 @@ vscp_link_callback_disconnect(vscp_link_ctx_t *pctx)
   }
 
   // Restart ethernet module (will be ready for new connections again)
-  wiznet_ip20_command_mode();
+  wiznet_ip20_enter_command_mode();
   wiznet_ip20_restart();
-  setLinkContextDefaults(pctx);
+  resetLinkContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
 }

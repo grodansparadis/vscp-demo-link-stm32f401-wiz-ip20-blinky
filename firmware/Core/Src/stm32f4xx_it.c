@@ -54,6 +54,7 @@
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 extern volatile uint32_t msTicks; /* Declare the msTicks variable as extern to be used in this file */
+extern volatile uint32_t g_user_reg_millisecond; /* Millisecond counter register, updated every 1 ms */
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -238,6 +239,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN TIM2_PeriodElapsedCallback 0 */
   if (htim->Instance == TIM2) {
     msTicks++;
+    g_user_reg_millisecond++; /* Update the millisecond counter register */
   }
   else if (htim->Instance == TIM3) {
     tim3_ovf++;
