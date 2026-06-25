@@ -118,7 +118,7 @@ vscp_link_callback_quit(vscp_link_ctx_t *pctx)
   // Restart ethernet module (will be ready for new connections again)
   wiznet_ip20_command_mode();
   wiznet_ip20_restart();
-  setContextDefaults(pctx);
+  setLinkContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -504,7 +504,7 @@ vscp_link_callback_chkData(vscp_link_ctx_t *pctx, uint16_t *pcount)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  *pcount     = OUTGOING_FIFO_SIZE -vscp_fifo_getFree(&pctx->fifoEventsOut);
+  *pcount     = BLINKY_OUTGOING_FIFO_SIZE -vscp_fifo_getFree(&pctx->fifoEventsOut);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -566,8 +566,9 @@ vscp_link_callback_set_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  memcpy(g_persistent.guid, pguid, 16);
-  return VSCP_ERROR_NOT_SUPPORTED;
+  //memcpy(g_persistent.guid, pguid, 16);
+  setGUID(pctx->guid);
+  return VSCP_ERROR_SUCCESS;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -750,7 +751,7 @@ vscp_link_callback_disconnect(vscp_link_ctx_t *pctx)
   // Restart ethernet module (will be ready for new connections again)
   wiznet_ip20_command_mode();
   wiznet_ip20_restart();
-  setContextDefaults(pctx);
+  setLinkContextDefaults(pctx);
 
   return VSCP_ERROR_SUCCESS;
 }

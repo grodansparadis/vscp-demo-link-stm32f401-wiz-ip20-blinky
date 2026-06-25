@@ -38,7 +38,15 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef enum {
+  VSCP_STATE_DISCONNECTED = 0, /**< Waiting for a client to connect    */
+  VSCP_STATE_CONNECTED,        /**< Client connected, processing cmds  */
+} vscp_state_t;
 
+typedef enum {
+  VSCP_SUBSTATE_POLL = 0, /**< Polling state */
+  VSCP_SUBSTATE_AUTO,     /**< RETR mode */
+} vscp_substate_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -57,12 +65,32 @@ Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+/*!
+ * @brief Set the GUID for the device.
+ *
+ * This function sets the GUID (Globally Unique Identifier) for the device. The GUID is a 16-byte unique identifier
+ * that is used to identify the device in the VSCP network. The provided GUID should be a valid 16-byte array.
+ *
+ * @param pguid Pointer to a 16-byte array containing the new GUID.
+ * @return VSCP_ERROR_SUCCESS on success, or an appropriate error code on failure.
+ */
+
+void
+setGUID(uint8_t * const pguid);
+
 /**
  * @brief Set defaults for the Context Defaults object
  * @param pctx Pointer to context
  */
 void
-setContextDefaults(vscp_link_ctx_t *pctx);
+setLinkContextDefaults(vscp_link_ctx_t *pctx);
+
+/*!
+  * @brief Set defaults for the Firmware Context Defaults object
+  * @param pctx Pointer to context
+*/
+void
+setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx);
 
 /*!
  * @brief  Restart the WIZnet IP20 module to apply new settings.

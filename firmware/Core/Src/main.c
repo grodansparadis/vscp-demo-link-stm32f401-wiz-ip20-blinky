@@ -40,15 +40,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef enum {
-  VSCP_STATE_DISCONNECTED = 0, /**< Waiting for a client to connect    */
-  VSCP_STATE_CONNECTED,        /**< Client connected, processing cmds  */
-} vscp_state_t;
 
-typedef enum {
-  VSCP_SUBSTATE_POLL = 0, /**< Polling state */
-  VSCP_SUBSTATE_AUTO,     /**< RETR mode */
-} vscp_substate_t;
 
 /* USER CODE END PTD */
 
@@ -146,8 +138,8 @@ vscp_frmw2_ops_t ops_firmware = {
   .report_events_of_interest = vscp_frmw2_callback_report_events_of_interest,
   .set_event_time            = vscp_frmw2_callback_set_event_time,
   .get_ip_addr               = vscp_frmw2_callback_get_ip_addr,
-  .read_reg                  = vscp_frmw2_callback_read_reg,
-  .write_reg                 = vscp_frmw2_callback_write_reg,
+  .read_reg                  = vscp_frmw2_callback_read_user_reg,
+  .write_reg                 = vscp_frmw2_callback_write_user_reg,
   .stdreg_change             = vscp_frmw2_callback_stdreg_change,
   .restore_defaults          = vscp_frmw2_callback_restore_defaults,
   .enter_bootloader          = vscp_frmw2_callback_enter_bootloader,
@@ -198,7 +190,7 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .userId                      = 0,    // [P] User id.
   .manufacturerId              = 0,    // [*/P] Manufacturer id.Read only for clients.
   .manufacturerSubId           = 0,    // [*/P] Manufacturer sub id.Read only for clients.
-  .nickname                    = 0xff, // [P] Device nickname (init=0xff)
+  .nickname                    = BLINKY_NODE_ID, // [P] Device nickname (nodeid) (init=0xff)
   .page_select                 = 0,    // [I] Page select register. (Init = 0)
   .firmware_major_version      = 0,    // [*] This software version. Read only for clients.
   .firmware_minor_version      = 0,    // [*] This software version. Read only for clients.
@@ -211,7 +203,7 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .guid       = { 0 },
   .mdfurl     = { 0 },
   .ipaddr     = { 0 },
-  .deviceName = "Blinky demo device",
+  .deviceName = THIS_FIRMWARE_DEVICE_NAME,
 
   .ops       = &ops_firmware,
   .puserdata = &ctx_link, // Link protocol context is available as user data for firmware callbacks
@@ -281,7 +273,7 @@ static vscp_link_ctx_t ctx_link = {
   .next              = NULL,
   .ops               = &link_ops,
   .id                = 0,
-  .sock              = 0, // Non zero when connected
+  .sock              = VSCP_STATE_DISCONNECTED, // Non zero when connected
   .guid              = { 0 },
   .user              = { 0 },
   .fifoEventsIn      = { 0 }, // VSCP event receive fifo (from client)
@@ -317,7 +309,7 @@ uart1_rx_scan(const char *needle);
 static void
 uart1_rx_consume_through(const char *needle);
 void
-setContextDefaults(vscp_link_ctx_t *pctx);
+setLinkContextDefaults(vscp_link_ctx_t *pctx);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -658,7 +650,7 @@ uart1_rx_consume_through(const char *needle)
  */
 
 void
-setGUID(uint8_t *pguid)
+setGUID(uint8_t * const pguid)
 {
   uint32_t uid;
 
@@ -667,25 +659,25 @@ setGUID(uint8_t *pguid)
   pguid[1] = 0x02;      /* Manufacturer code for STMicroelectronics */
   pguid[2] = 0x01;      /* Device type code for STM32 */
 
-  uid      = HAL_GetUIDw2(); // Words 2 (bits 95:64)
+  uid      = HAL_GetUIDw0(); // Words 0 (bits 31:0)
   pguid[3] = (uid >> 24) & 0xFF;
   pguid[4] = (uid >> 16) & 0xFF;
   pguid[5] = (uid >> 8) & 0xFF;
   pguid[6] = uid & 0xFF;
 
-  uid       = HAL_GetUIDw0(); // Words 0 (bits 31:0)
+  uid       = HAL_GetUIDw1(); // Words 1 (bits 63:32)
   pguid[7]  = (uid >> 24) & 0xFF;
   pguid[8]  = (uid >> 16) & 0xFF;
   pguid[9]  = (uid >> 8) & 0xFF;
   pguid[10] = uid & 0xFF;
 
-  uid       = HAL_GetUIDw1(); // Words 1 (bits 63:32)
+  uid       = HAL_GetUIDw2(); // Words 2 (bits 95:64)
   pguid[11] = (uid >> 24) & 0xFF;
   pguid[12] = (uid >> 16) & 0xFF;
   pguid[13] = (uid >> 8) & 0xFF;
   pguid[14] = uid & 0xFF;
 
-  pguid[15] = 0; // Last byte set to zero
+  pguid[15] = BLINKY_NODE_ID; // Last byte set to node ID
 }
 
 /*!
@@ -698,9 +690,8 @@ setGUID(uint8_t *pguid)
  */
 
 void
-setContextDefaults(vscp_link_ctx_t *pctx)
+setLinkContextDefaults(vscp_link_ctx_t *pctx)
 {
-  // memset(pctx, 0, sizeof(vscp_link_ctx_t));
   pctx->id   = 0;
   pctx->next = NULL;
   pctx->ops  = &link_ops;
@@ -708,9 +699,9 @@ setContextDefaults(vscp_link_ctx_t *pctx)
   memset(pctx->user, 0, VSCP_LINK_MAX_USER_NAME_LENGTH);
   setGUID(pctx->guid);
   vscp_fifo_deinit(&pctx->fifoEventsOut);
-  vscp_fifo_init(&pctx->fifoEventsOut, OUTGOING_FIFO_SIZE);
+  vscp_fifo_init(&pctx->fifoEventsOut, BLINKY_OUTGOING_FIFO_SIZE);
   vscp_fifo_deinit(&pctx->fifoEventsIn);
-  vscp_fifo_init(&pctx->fifoEventsIn, INCOMING_FIFO_SIZE);
+  vscp_fifo_init(&pctx->fifoEventsIn, BLINKY_INCOMING_FIFO_SIZE);
   pctx->bValidated = 0; // No credentials yet
   pctx->privLevel  = 0; // No privileges before we are logged in
   pctx->bRcvLoop   = 0; // Polling mode by default, can switch to RETR after login if desired
@@ -721,10 +712,43 @@ setContextDefaults(vscp_link_ctx_t *pctx)
 }
 
 /*!
+  * @brief  Initialize the VSCP firmware context with default values.
+  * @param  pctx: Pointer to the context structure to initialize.
+  *
+  * This function sets up the firmware context with default values, including
+  * the VSCP level, state, and various configuration parameters. It also
+  * initializes the GUID and other identifiers for the device.
+  *
+  * Note: The firmware context is used by the VSCP Level II protocol stack to
+  * manage device-specific settings and operations.
+*/
+void
+setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx)
+{
+  pfwctx->level    = VSCP_LEVEL2;
+  pfwctx->state    = FRMW2_STATE_NONE;
+  pfwctx->substate = 0;
+
+  pfwctx->bEnableErrorReporting          = 0; // Send error reporting events (FALSE)
+  pfwctx->bEnableLogging                 = 0; // Enable logging events (FALSE)
+  pfwctx->log_id                         = 0; // Identifies log channel
+  pfwctx->log_level                      = 0; // Level for logs
+  pfwctx->bHighEndServerResponse         = 0; // React on high end server probe. Only level II (FALSE)
+  pfwctx->bEnableWriteProtectedLocations = 0; // GUID/manufacturer id (FALSE)
+  pfwctx->bUse16BitNickname              = 0; // 16-bit nickname. Default is false. Only for level I (FALSE)
+  pfwctx->bInterestedInAllEvents         = 0; // TRUE if interested in all events. If FALSE
+
+  setGUID(pfwctx->guid);
+  memset(pfwctx->mdfurl, 0, sizeof(pfwctx->mdfurl));
+  memset(pfwctx->ipaddr, 0, sizeof(pfwctx->ipaddr));
+  strncpy(pfwctx->deviceName, "Blinky demo device", sizeof(pfwctx->deviceName) - 1);
+}
+
+/*!
  * @brief  Reset the VSCP link context to default values for a new connection.
  * @param  pctx: Pointer to the context structure to reset.
  *
- * This function is similar to setContextDefaults but is intended to be called
+ * This function is similar to setLinkContextDefaults but is intended to be called
  * when resetting the context for a new client connection, without changing
  * fields that should persist across connections (like the GUID).
  *
@@ -735,7 +759,7 @@ setContextDefaults(vscp_link_ctx_t *pctx)
  */
 
 void
-resetContextDefaults(vscp_link_ctx_t *pctx)
+resetLinkContextDefaults(vscp_link_ctx_t *pctx)
 {
   pctx->bValidated = 0; // No credentials yet
   pctx->privLevel  = 0; // No privileges before we are logged in
@@ -884,8 +908,8 @@ validate_user(const char *user, const char *password)
 {
   // For demonstration purposes, we accept a single hardcoded username/password.
   // In a real implementation, you should check against securely stored credentials.
-  const char *valid_user     = "vscp";
-  const char *valid_password = "secret";
+  const char *valid_user     = BLINKY_DEFAULT_VSCP_LINK_USER;
+  const char *valid_password = BLINKY_DEFAULT_VSCP_LINK_PASSWORD;
 
   return (strcmp(user, valid_user) == 0) && (strcmp(password, valid_password) == 0);
 }
@@ -1162,7 +1186,8 @@ int
 main(void)
 {
   /* USER CODE BEGIN 1 */
-  char buf[100]; // Buffer for AT command responses and incoming data
+  int rv;
+  char buf[2672]; // Buffer for cmd responses and incoming data and event conversions
   size_t rx_len;
   (void) rx_len;                   // only used to capture AT response lengths during init
   uint32_t led_blink_until    = 0; // LED blink timestamp
@@ -1208,7 +1233,10 @@ main(void)
   uart1_rx_start();
 
   // Initialize context for client connections
-  setContextDefaults(&ctx_link);
+  setLinkContextDefaults(&ctx_link);
+  
+  // Initialize context for VSCP firmware stack
+  setFirmwareContextDefaults(&ctx_firmware);
 
   /*
     * WIZ-IP20 initialization sequence (AT command mode, blocking)
@@ -1280,10 +1308,42 @@ main(void)
         else if (uart1_rx_getline(buf, sizeof(buf), 0) == 0) {
           /* Consume and log incoming VSCP commands */
           LOGSTR("VSCP cmd: %s", buf);
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          led_blink_until = HAL_GetTick() + 50u;
+          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+          // led_blink_until = HAL_GetTick() + 50u;
           vscp_link_parser(&ctx_link, buf);
         }
+        else if (ctx_link.bRcvLoop && ctx_link.bValidated) {
+          // Check if there is events for the client
+          vscpEvent *pev = NULL;
+          // Check if there is an event in the out queue
+          if (vscp_fifo_read(&ctx_link.fifoEventsOut, &pev)) {
+            // We should have a valid pointer to an event here
+            if (NULL == pev) {
+              break;
+            }
+            // Convert to string format
+            if (VSCP_ERROR_SUCCESS == (rv = vscp_fwhlp_eventToString(buf, sizeof(buf), pev))) {
+              strcat(buf, "\r\n");
+              ctx_link.ops->write_client(&ctx_link, buf);
+            }
+            else {
+              LOGSTR("Failed to convert event to string: %d\r\n", rv);
+            }
+            // Free event
+            vscp_fwhlp_deleteEvent(&pev);
+
+            // Update last receive loop time to avoid sending alive marker when not needed
+            ctx_link.last_rcvloop_time = HAL_GetTick();
+          }
+          else {
+            // No event in out fifo, should we write alive marker
+            if (HAL_GetTick() - ctx_link.last_rcvloop_time > 1000) {
+              ctx_link.last_rcvloop_time = HAL_GetTick();
+              ctx_link.ops->write_client(&ctx_link, "+OK\r\n");
+            }
+          }
+        }
+
         break;
 
       default:
@@ -1292,10 +1352,10 @@ main(void)
     }
 
     /* Turn LED off after 50 ms blink */
-    if (led_blink_until != 0u && HAL_GetTick() >= led_blink_until) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); /* LED off */
-      led_blink_until = 0u;
-    }
+    // if (led_blink_until != 0u && HAL_GetTick() >= led_blink_until) {
+    //   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET); /* LED off */
+    //   led_blink_until = 0u;
+    // }
 
     /* Toggle the state of pin 13 on GPIO port C */
     // if ((HAL_GetTick() - now) >= 500) {

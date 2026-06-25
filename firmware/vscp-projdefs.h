@@ -7,9 +7,9 @@
 #ifndef _VSCP_PROJDEFS_H_
 #define _VSCP_PROJDEFS_H_
 
-// Debug logging macro. This can be used to print debug messages to the console. 
+// Debug logging macro. This can be used to print debug messages to the console.
 // It is defined as a no-op by default, but it can be redefined to use printf or another logging mechanism if needed.
-//#define LOGSTR(...) ((void)0)
+// #define LOGSTR(...) ((void)0)
 #define LOGSTR(...) printf(__VA_ARGS__)
 
 /*
@@ -17,6 +17,18 @@
                                    Blinky
   ----------------------------------------------------------------------------
 */
+
+/*!
+  This is the LSB of the GUID for the blinky demo device. The GUID is a 16-byte
+  unique identifier for the device on the VSCP network. For a level I node
+  the nodeid (or nickname) should be initialized to 0xff meaning that the nodes
+  if is unassigned. The nickname will be assigned by the segment controller when
+  the node is probed or by the node nickname discovery process.
+  For a level II node the GUID should be set to a unique value. In this case it is
+  fetched constructed from the STM32 unique ID.
+*/
+#define BLINKY_NODE_ID                                                                                                 \
+  0x10 // Node ID for the blinky demo device. This is the unique identifier for the device on the VSCP network.
 
 /*!
   Select **one **of the following modes for the blinky demo. This will determine how the
@@ -50,7 +62,44 @@
 
 // ----------------------------------------------------------------------
 
+// Buffer
+#define BLINKY_TCPIP_BUF_MAX_SIZE (2048u)
 
+/**
+ * VSCP TCP link protocol character buffer size
+ */
+#ifndef BLINKY_DATA_BUF_SIZE
+#define BLINKY_DATA_BUF_SIZE 512
+#endif
+
+/**
+ * Max number of events in the incoming fifo (to node)
+ */
+#define BLINKY_INCOMING_FIFO_SIZE 16
+
+/**
+ * Max number of events in each of the outgoing fifo (to client)
+ */
+#define BLINKY_OUTGOING_FIFO_SIZE 16
+
+#define BLINKY_WELCOME_MSG                                                                                             \
+  "Welcome to the VSCP Blinky demo\r\n"                                                                                \
+  "STM32F401 + WIZnet IP20\r\n"                                                                                        \
+  "Version: 0.0.1 - %d\r\n"                                                                                            \
+  "Copyright (C) 2000-2026 Grodans Paradis AB\r\n"                                                                     \
+  "https://www.grodansparadis.com\r\n"                                                                                 \
+  "+OK\r\n"
+
+// System defaults
+
+
+#define BLINKY_DEFAULT_ENCRYPTION_LEVEL VSCP_ENCRYPTION_NONE // 0 = none, 1 = AES128, 2 = AES192, 3 = AES256
+#define BLINKY_DEFAULT_MODULE_ZONE      1                    // VSCP zone for module
+#define BLINKY_DEFAULT_MODULE_SUBZONE   2                    // VSCP subzone for module
+
+#define BLINKY_DEFAULT_VSCP_LINK_PORT     VSCP_LINK_PORT // defined in board-config.h
+#define BLINKY_DEFAULT_VSCP_LINK_USER     "vscp"
+#define BLINKY_DEFAULT_VSCP_LINK_PASSWORD "secret"
 
 /**
  * Maximum number of simultaneous TCP/IP connections
@@ -176,11 +225,11 @@
 
 #define WIZ_IP20_SERIAL_ECHO "EC1\r\n" // EC0\r\n 0 = not used, 1 = used
 
-#define WIZ_IP20_IP                   "LI192.168.1.88\r\n"  // LI192.168.1.88\r\n
-#define WIZ_IP20_NETMASK              "SM255.255.255.0\r\n" // SM255.255.255.0\r\n
-#define WIZ_IP20_GATEWAY              "GW192.168.1.1\r\n"   // GW192.168.1.1\r\n
-#define WIZ_IP20_DNS                  "DS8.8.8.8\r\n"       // DS8.8.8.8\r\n
-#define WIZ_IP20_IP_ALLOCATION_METHOD "IM0\r\n"             // IM0 = static, IM1 = DHCP, IM2 = PPPoE
+#define WIZ_IP20_IP                   "LI192.168.1.88\r\n"                    // LI192.168.1.88\r\n
+#define WIZ_IP20_NETMASK              "SM255.255.255.0\r\n"                   // SM255.255.255.0\r\n
+#define WIZ_IP20_GATEWAY              "GW192.168.1.1\r\n"                     // GW192.168.1.1\r\n
+#define WIZ_IP20_DNS                  "DS8.8.8.8\r\n"                         // DS8.8.8.8\r\n
+#define WIZ_IP20_IP_ALLOCATION_METHOD "IM0\r\n"                               // IM0 = static, IM1 = DHCP, IM2 = PPPoE
 #define WIZ_IP20_PORT                 "LP" _BOARD_XSTR(VSCP_LINK_PORT) "\r\n" // derived from VSCP_LINK_PORT in board-config.h
 
 // Operation mode
@@ -236,8 +285,9 @@
   when a new connection is made or when a connection is lost. If you change you must make
   sure that you do change the strings in the main loop as well.
 */
-#define WIZ_IP20_LINK_CONNECT_STR    "SD" BLINKY_CONNECT_STR "\r\n"    // SD<CONNECT>\r\n string to send on new connection
-#define WIZ_IP20_LINK_DISCONNECT_STR "DD" BLINKY_DISCONNECT_STR "\r\n" // DD<DISCONNECT>\r\n string to send on disconnection
+#define WIZ_IP20_LINK_CONNECT_STR "SD" BLINKY_CONNECT_STR "\r\n" // SD<CONNECT>\r\n string to send on new connection
+#define WIZ_IP20_LINK_DISCONNECT_STR                                                                                   \
+  "DD" BLINKY_DISCONNECT_STR "\r\n" // DD<DISCONNECT>\r\n string to send on disconnection
 #define WIZ_IP20_LINK_ETH_CONNECT_STR                                                                                  \
   "WIZNET-IP20\r\n" // SE\r\n string to send on new Ethernet connection (not used here)
 
@@ -301,7 +351,6 @@
   If not defined, standard help is shown.
 */
 // #define VSCP_LINK_CUSTOM_HELP_TEXT
-
 
 /**
   ----------------------------------------------------------------------------

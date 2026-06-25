@@ -38,44 +38,7 @@
 #include <vscp-link-protocol.h>
 #include <vscp-firmware-level2.h>
 
-// Buffer
-#define TCPIP_BUF_MAX_SIZE (2048u)
 
-/**
- * VSCP TCP link protocol character buffer size
- */
-#ifndef DATA_BUF_SIZE
-#define DATA_BUF_SIZE 512
-#endif
-
-/**
- * Max number of events in the incoming fifo (to node)
- */
-#define INCOMING_FIFO_SIZE 16
-
-/**
- * Max number of events in each of the outgoing fifo (to client)
- */
-#define OUTGOING_FIFO_SIZE 16
-
-#define BLINKY_WELCOME_MSG                                                                                             \
-  "Welcome to the VSCP Blinky demo\r\n"                                                                                     \
-  "STM32F401 + WIZnet IP20\r\n"                                                                                     \
-  "Version: 0.0.1 - %d\r\n"                                                                                             \
-  "Copyright (C) 2000-2026 Grodans Paradis AB\r\n"                                                                     \
-  "https://www.grodansparadis.com\r\n"                                                                                 \
-  "+OK\r\n"
-
-// System defaults
-
-#define DEFAULT_NODE_NAME        "VSCP Blinky"
-#define DEFAULT_ENCRYPTION_LEVEL VSCP_ENCRYPTION_NONE // 0 = none, 1 = AES128, 2 = AES192, 3 = AES256
-#define DEFAULT_MODULE_ZONE      0                    // VSCP zone for module
-#define DEFAULT_MODULE_SUBZONE   0                    // VSCP subzone for module
-
-#define DEFAULT_VSCP_LINK_PORT     VSCP_LINK_PORT // defined in board-config.h
-#define DEFAULT_VSCP_LINK_USER     "vscp"
-#define DEFAULT_VSCP_LINK_PASSWORD "secret"
 
 typedef struct {
 

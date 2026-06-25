@@ -55,6 +55,7 @@
 #include "main.h"
 #include "blinky.h"
 #include "regdefs.h"
+#include "vscp.h"
 
 extern char g_ipaddrstr[20];
 extern char g_macaddrstr[20];
@@ -113,12 +114,10 @@ vscp_frmw2_callback_write_manufacturer_id(vscp_frmw2_firmware_context_t *pctx, u
 int
 vscp_frmw2_callback_write_guid(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
 {
-  // TODO eeprom_write(&eeprom, STDREG_GUID0 + pos, val);
+  // On devices that allow it, write the GUID to a write-protected area of memory
+  // (e.g., EEPROM or flash).;
 
-  // Commit changes to 'eeprom'
-  // TODO eeprom_commit(&eeprom);
-
-  return VSCP_ERROR_SUCCESS;
+  return VSCP_ERROR_NOT_SUPPORTED;
 }
 
 #endif // THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
@@ -128,8 +127,11 @@ vscp_frmw2_callback_write_guid(vscp_frmw2_firmware_context_t *pctx, uint8_t pos,
 //
 
 int
-vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint32_t reg, uint8_t *pval)
+vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
 {
+  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
+  // here.
+
   // Check pointers (pdata allowed to be NULL)
   if (NULL == pval) {
     return VSCP_ERROR_INVALID_POINTER;
@@ -234,8 +236,11 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint32_t 
 //
 
 int
-vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint32_t reg, uint8_t val)
+vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
 {
+  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
+  // here.
+
   if (REG_DEVICE_ZONE == reg) {
     // TODO eeprom_write(&eeprom, REG_DEVICE_ZONE, val);
   }
@@ -373,10 +378,21 @@ vscp_frmw2_callback_get_time(vscp_frmw2_firmware_context_t *pctx, const vscp_eve
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_send_event
 //
+// Node sending event to client
+//
 
 int
 vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *pev)
 {
+  // The fifo is defined in the context for the link protocol which
+  // should be in the user data of the firmwarecontext.
+  vscp_link_ctx_t *ctx_link = (vscp_link_ctx_t *) pctx->puserdata;3
+
+  // Do not allow write to fifo if we are not connected
+  if (VSCP_STATE_DISCONNECTED == ctx_link->sock) {
+    return VSCP_ERROR_NOT_CONNECTED;
+  }
+
   // There is only one connection in this demo firmware, so we can directly write to its out queue.
   // In a more complex firmware, we would need to check which connections are open, and which
   // ones are validated, and write to all validated connections.
@@ -388,10 +404,8 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
       return VSCP_ERROR_MEMORY;
     }
     else {
-      pnew->obid = 0xffffffff; // The device
-      // The fifo is defined in the context for the link protocol which should be in the user data of the firmware
-      // context.
-      vscp_link_ctx_t *ctx_link = (vscp_link_ctx_t *) pctx->puserdata;
+      pnew->obid = pev->obid; // Keep the same obid as the original event
+
       if (vscp_fifo_write(&ctx_link->fifoEventsOut, pnew)) {
         LOGSTR("Event written to fifo\n");
       }
@@ -489,7 +503,7 @@ int
 vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip, uint8_t size)
 {
   if (NULL == ip) {
-    return VSCP_ERROR_PARAMETER;
+    return VSCP_ERROR_INVALID_POINTER;
   }
   else {
     if (0 != ip_str_to_bytes(ip, g_ipaddrstr)) {
@@ -512,11 +526,13 @@ int
 vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *const pev)
 {
   if (NULL == pev) {
-    return VSCP_ERROR_PARAMETER;
+    return VSCP_ERROR_INVALID_POINTER;
   }
-
-  pev->timestamp = vscp_frmw2_callback_get_timestamp(pctx);
-
+  // Always set 64-bit nanosecond timestamp
+  pev->head |= VSCP_HEADER16_FRAME_VERSION_UNIX_NS;
+  pev->year         = 0xffff;
+  pev->month        = 0xff;
+  pev->timestamp_ns = vscp_frmw2_callback_get_timestamp(pctx) * 1000; // Convert microseconds to nanoseconds
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -545,7 +561,10 @@ vscp_frmw2_callback_feed_watchdog(vscp_frmw2_firmware_context_t *pctx)
 //
 
 int
-vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx, const vscp_event_t *pev, uint8_t action, const uint8_t *pparam)
+vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx,
+                              const vscp_event_t *pev,
+                              uint8_t action,
+                              const uint8_t *pparam)
 {
   return VSCP_ERROR_SUCCESS;
 }
@@ -556,26 +575,6 @@ vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx, const vscp_ev
 
 int
 vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, uint16_t segcrc, uint32_t time)
-{
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_read_reg
-//
-
-int
-vscp_frmw2_callback_read_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
-{
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_write_reg
-//
-
-int
-vscp_frmw2_callback_write_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
 {
   return VSCP_ERROR_SUCCESS;
 }
