@@ -54,9 +54,13 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : B1_Pin (Blue PushButton, active low) */
   GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING; /* fire on both press and release */
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+
+  /* Enable EXTI15_10 interrupt for PC13 */
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /*Configure GPIO pin : LD2_Pin (Green LED on PA5) */
   GPIO_InitStruct.Pin = LD2_Pin;

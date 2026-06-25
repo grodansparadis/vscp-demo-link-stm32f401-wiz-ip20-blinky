@@ -394,6 +394,28 @@ uart1_rx_start(void)
  *         Stores the byte in the ring buffer and re-arms the IRQ.
  */
 
+/*!
+ * @brief  EXTI callback – fires when PC13 (B1 button) changes state.
+ *
+ *         The button is active-low: pin reads 0 when pressed, 1 when released.
+ *         Both edges are enabled in GPIO_MODE_IT_RISING_FALLING, so this
+ *         callback is invoked on press and release.
+ *
+ * @param  GPIO_Pin  Pin that triggered the interrupt (should be B1_Pin).
+ */
+void
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == B1_Pin) {
+    if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
+      /* Button pressed (pin went low) */
+    }
+    else {
+      /* Button released (pin went high) */
+    }
+  }
+}
+
 void
 HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
