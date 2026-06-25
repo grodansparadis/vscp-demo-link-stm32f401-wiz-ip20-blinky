@@ -35,8 +35,19 @@
 #ifndef __REGDEFS_H__
 #define __REGDEFS_H__
 
-// User registers
-#define REG_DEVICE_ZONE    0
-#define REG_DEVICE_SUBZONE 1
+// User registers ordinals
+#define REG_DEVICE_ZONE               0 // Zone for the device [P]
+#define REG_DEVICE_SUBZONE            1 // Subzone for the device [P]
+#define REG_DEVICE_STATUS             2 // Status of the device [P]
+#define REG_DEVICE_CONTROL            3 // Control register for the device [P]
+#define REG_DEVICE_BLINK_INTERVAL_MSB 4 // Most significant byte of the blink interval [P]
+#define REG_DEVICE_BLINK_INTERVAL_LSB 5 // Least significant byte of the blink interval [P]
+#define REG_DEVICE_COUNTER_0          6 // Counter 0 
+#define REG_DEVICE_COUNTER_1          7 // Counter 1 
+#define REG_DEVICE_COUNTER_2          8 // Counter 2 
+#define REG_DEVICE_COUNTER_3          9 // Counter 3 
+#define REG_DEVICE_BUTTON_BYTE0       10 // Button byte 0 [P]
+#define REG_DEVICE_BUTTON_ZONE        11 // Button zone [P]
+#define REG_DEVICE_BUTTON_SUBZONE     12 // Button subzone [P]
 
 #endif

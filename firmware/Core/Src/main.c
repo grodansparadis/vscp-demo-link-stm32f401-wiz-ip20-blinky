@@ -40,8 +40,6 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -118,6 +116,17 @@ char g_ipaddrstr[20] = { 0 };
 //  It is updated when we read the MAC address from the module during initialization.
 char g_macaddrstr[20] = { 0 };
 
+/*!
+ * @brief Structure representing the persistent configuration of the node.
+ *
+ * This structure holds the persistent configuration data for the node.
+ * The GUID, nickname, user credentials, etc are often in this storage but
+ * are hardcoded in this demo.
+ * The storage is used to store and retrieve configuration information that
+ * should persist across device resets or power cycles.
+ */
+register_union_t g_registers; // Union for registers, including decision matrix and other device settings
+
 //----------------------------------------------------------------------------
 //                         VSCP Binary Protocol
 //----------------------------------------------------------------------------
@@ -126,7 +135,7 @@ char g_macaddrstr[20] = { 0 };
 static vscp_binary_ctx_t ctx_binary = { 0 };
 
 //----------------------------------------------------------------------------
-//                         VSCP Protocol
+//                         VSCP Firmware Level II
 //----------------------------------------------------------------------------
 
 vscp_frmw2_ops_t ops_firmware = {
@@ -164,17 +173,17 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .bUse16BitNickname              = 0, // 16-bit nickname. Default is false. Only for level I (FALSE)
   .bInterestedInAllEvents         = 0, // TRUE if interested in all events. If FALSE
 
-  .interval_heartbeat = 30000, // Interval for heartbeats in milli-seconds (0=off)
+  .interval_heartbeat = 60000, // Interval for heartbeats in milli-seconds (0=off)
   .last_heartbeat     = 0,     // Time for last heartbeat send
   .interval_caps      = 60000, // Interval for capabilities events in milli-seconds (0=off)
   .last_caps          = 0,     // Time for last caps send
 
   // Decision matrix
-  .pDm         = NULL, // Pointer to decision matrix storage (NULL if no DM).
-  .nDmRows     = 0,    // Number of DM rows (0 if no DM).
-  .sizeDmRow   = 0,    // Size for one DM row.
-  .regOffsetDm = 0,    // Register offset for DM (normally zero)
-  .pageDm      = 0,    // Register page where DM definition starts
+  .pDm         = g_registers.data.dm, // Pointer to decision matrix storage (NULL if no DM).
+  .nDmRows     = 4,                   // Number of DM rows (0 if no DM).
+  .sizeDmRow   = 8,                   // Size for one DM row.
+  .regOffsetDm = 0xff,                // Register offset for DM (normally zero)
+  .pageDm      = 0,                   // Register page where DM definition starts
 
   .pInternalMdf      = NULL, // Internal MDF data. Firmware can use this as needed.
   .pEventsOfInterest = NULL, // Filled in by firmware on init
@@ -183,27 +192,31 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .high_end_ip_address = 0, // High end server ip-address
   .high_end_srv_port   = 0, // High end server port
 
-  .alarm_status                = 0,    // [I] Alarm. Read only for clients. (init=0)
-  .vscp_major_version          = 1,    // [C] VSCP protocol major version. (init=1)
-  .vscp_minor_version          = 4,    // [C] VSCP protocol minor version. (init=4)
-  .errorCounter                = 0,    // [I] Error counter. Clear on read. Read only for clients. (init=0)
-  .userId                      = 0,    // [P] User id.
-  .manufacturerId              = 0,    // [*/P] Manufacturer id.Read only for clients.
-  .manufacturerSubId           = 0,    // [*/P] Manufacturer sub id.Read only for clients.
-  .nickname                    = BLINKY_NODE_ID, // [P] Device nickname (nodeid) (init=0xff)
-  .page_select                 = 0,    // [I] Page select register. (Init = 0)
-  .firmware_major_version      = 0,    // [*] This software version. Read only for clients.
-  .firmware_minor_version      = 0,    // [*] This software version. Read only for clients.
-  .firmware_sub_minor_version  = 0,    // [*] This software version. Read only for clients.
-  .bootloader_algorithm        = 0,    // [*] Boot loader algorithm we use.
-  .standard_device_family_code = 0,    // [*] Family code. Read only for clients.
-  .standard_device_type_code   = 0,    // [*] Family type. Read only for clients.
-  .firmware_device_code        = 0,
+  .alarm_status               = 0,          // [I] Alarm. Read only for clients. (init=0)
+  .vscp_major_version         = 1,          // [C] VSCP protocol major version. (init=1)
+  .vscp_minor_version         = 4,          // [C] VSCP protocol minor version. (init=4)
+  .errorCounter               = 0,          // [I] Error counter. Clear on read. Read only for clients. (init=0)
+  .userId[0]                  = 11,         // [P] User id.
+  .userId[1]                  = 22,         // [P] User id.
+  .userId[2]                  = 33,         // [P] User id.
+  .userId[3]                  = 44,         // [P] User id.
+  .userId[4]                  = 55,         // [P] User id.
+  .manufacturerId             = 0x01020304, // [*/P] Manufacturer id.Read only for clients.
+  .manufacturerSubId          = 0x05060708, // [*/P] Manufacturer sub id.Read only for clients.
+  .nickname                   = 0x10,       // [P] Device nickname (nodeid) (init=0xff)
+  .page_select                = 0,          // [I] Page select register. (Init = 0)
+  .firmware_major_version     = THIS_FIRMWARE_MAJOR_VERSION,   // [*] This software version. Read only for clients.
+  .firmware_minor_version     = THIS_FIRMWARE_MINOR_VERSION,   // [*] This software version. Read only for clients.
+  .firmware_sub_minor_version = THIS_FIRMWARE_RELEASE_VERSION, // [*] This software version. Read only for clients.
+  .bootloader_algorithm       = 0,                             // [*] Boot loader algorithm we use.
+  .standard_device_family     = 0x0002,                        // [*] Family code. Read only for clients.
+  .standard_device_type       = 0,                             // [*] Family type. Read only for clients.
+  .firmware_device_code       = 0x0001,                        // [*] Firmware device code. Read only for clients.
 
-  .guid       = { 0 },
-  .mdfurl     = { 0 },
+  .guid       = { 0 },                        // GUID is set from STM32 unique ID during initialization
+  .mdfurl     = "eurosource.se/blinky0.json", // Max 32 bytes
   .ipaddr     = { 0 },
-  .deviceName = THIS_FIRMWARE_DEVICE_NAME,
+  .deviceName = "VSCP blinky tcp/ip link demo", // Max 64 bytes
 
   .ops       = &ops_firmware,
   .puserdata = &ctx_link, // Link protocol context is available as user data for firmware callbacks
@@ -408,10 +421,20 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == B1_Pin) {
     if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
-      /* Button pressed (pin went low) */
+      /*
+        Button pressed (pin went low)
+
+        - We send Turn-ON event if configured to do so
+        - We send ON-event if configured to do so
+      */
     }
     else {
-      /* Button released (pin went high) */
+      /*
+        Button released (pin went high)
+
+        - We send Turn-OFF event if configured to do so
+        - We send OFF-event if configured to do so
+      */
     }
   }
 }
@@ -672,14 +695,14 @@ uart1_rx_consume_through(const char *needle)
  */
 
 void
-setGUID(uint8_t * const pguid)
+setGUID(uint8_t *const pguid)
 {
   uint32_t uid;
 
   memset(pguid, 0, 16); /* Clear the GUID buffer */
   pguid[0] = 0xFD;      /* VSCP reserved prefix for MCU-based GUIDs */
-  pguid[1] = 0x02;      /* Manufacturer code for STMicroelectronics */
-  pguid[2] = 0x01;      /* Device type code for STM32 */
+  pguid[1] = 0x00;      /* Manufacturer code for STMicroelectronics */
+  pguid[2] = 0x02;      
 
   uid      = HAL_GetUIDw0(); // Words 0 (bits 31:0)
   pguid[3] = (uid >> 24) & 0xFF;
@@ -699,7 +722,7 @@ setGUID(uint8_t * const pguid)
   pguid[13] = (uid >> 8) & 0xFF;
   pguid[14] = uid & 0xFF;
 
-  pguid[15] = BLINKY_NODE_ID; // Last byte set to node ID
+  pguid[15] = 0x00; // Last byte set to node ID
 }
 
 /*!
@@ -734,16 +757,16 @@ setLinkContextDefaults(vscp_link_ctx_t *pctx)
 }
 
 /*!
-  * @brief  Initialize the VSCP firmware context with default values.
-  * @param  pctx: Pointer to the context structure to initialize.
-  *
-  * This function sets up the firmware context with default values, including
-  * the VSCP level, state, and various configuration parameters. It also
-  * initializes the GUID and other identifiers for the device.
-  *
-  * Note: The firmware context is used by the VSCP Level II protocol stack to
-  * manage device-specific settings and operations.
-*/
+ * @brief  Initialize the VSCP firmware context with default values.
+ * @param  pctx: Pointer to the context structure to initialize.
+ *
+ * This function sets up the firmware context with default values, including
+ * the VSCP level, state, and various configuration parameters. It also
+ * initializes the GUID and other identifiers for the device.
+ *
+ * Note: The firmware context is used by the VSCP Level II protocol stack to
+ * manage device-specific settings and operations.
+ */
 void
 setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx)
 {
@@ -1256,7 +1279,7 @@ main(void)
 
   // Initialize context for client connections
   setLinkContextDefaults(&ctx_link);
-  
+
   // Initialize context for VSCP firmware stack
   setFirmwareContextDefaults(&ctx_firmware);
 

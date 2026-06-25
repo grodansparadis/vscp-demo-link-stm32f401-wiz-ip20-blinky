@@ -18,17 +18,6 @@
   ----------------------------------------------------------------------------
 */
 
-/*!
-  This is the LSB of the GUID for the blinky demo device. The GUID is a 16-byte
-  unique identifier for the device on the VSCP network. For a level I node
-  the nodeid (or nickname) should be initialized to 0xff meaning that the nodes
-  if is unassigned. The nickname will be assigned by the segment controller when
-  the node is probed or by the node nickname discovery process.
-  For a level II node the GUID should be set to a unique value. In this case it is
-  fetched constructed from the STM32 unique ID.
-*/
-#define BLINKY_NODE_ID                                                                                                 \
-  0x10 // Node ID for the blinky demo device. This is the unique identifier for the device on the VSCP network.
 
 /*!
   Select **one **of the following modes for the blinky demo. This will determine how the
@@ -374,60 +363,6 @@
 /* THIS_FIRMWARE_BUILD_VERSION is auto-generated and provided by build_number.h */
 #include "build_number.h"
 
-/**
- * User id (this is only defaults)
- */
-#define THIS_FIRMWARE_USER_ID0 (1u)
-#define THIS_FIRMWARE_USER_ID1 (2u)
-#define THIS_FIRMWARE_USER_ID2 (3u)
-#define THIS_FIRMWARE_USER_ID3 (4u)
-#define THIS_FIRMWARE_USER_ID4 (5u)
-
-/**
- * Manufacturer id
- */
-#define THIS_FIRMWARE_MANUFACTURER_ID0 (11u)
-#define THIS_FIRMWARE_MANUFACTURER_ID1 (22u)
-#define THIS_FIRMWARE_MANUFACTURER_ID2 (33u)
-#define THIS_FIRMWARE_MANUFACTURER_ID3 (44u)
-
-/**
- * Manufacturer subid
- */
-#define THIS_FIRMWARE_MANUFACTURER_SUBID0 (55u)
-#define THIS_FIRMWARE_MANUFACTURER_SUBID1 (66u)
-#define THIS_FIRMWARE_MANUFACTURER_SUBID2 (77u)
-#define THIS_FIRMWARE_MANUFACTURER_SUBID3 (88u)
-
-/**
- * Set bootloader algorithm
- */
-#define THIS_FIRMWARE_BOOTLOADER_ALGORITHM (0u)
-
-/**
- * Device family code 32-bit
- */
-#define THIS_FIRMWARE_DEVICE_FAMILY_CODE (0ul)
-
-/**
- * Device type code 32-bit
- */
-#define THIS_FIRMWARE_DEVICE_TYPE_CODE (0ul)
-
-/**
-  Interval for heartbeats in seconds
-*/
-#define THIS_FIRMWARE_INTERVAL_HEARTBEATS (60u)
-
-/**
- * Interval for capabilities report in seconds
- */
-#define THIS_FIRMWARE_INTERVAL_CAPS (60u)
-
-/**
- * Buffer size
- */
-#define THIS_FIRMWARE_BUFFER_SIZE VSCP_MAX(vscp.h)
 
 /**
  * Enable logging
@@ -452,25 +387,6 @@
  */
 #define THIS_FIRMWARE_VSCP_DISCOVER_SERVER
 
-/**
- * URL to MDF file (max 32 bytes
- */
-#define THIS_FIRMWARE_MDF_URL "eurosource.se/blinky0.json"
-
-/**
- * 16-bit firmware code for this device
- */
-#define THIS_FIRMWARE_CODE (0)
-
-/**
- * 16-bit firmware code for this device
- */
-#define THIS_FIRMWARE_FAMILY_CODE (0)
-
-/**
- * 16-bit firmware code for this device
- */
-#define THIS_FIRMWARE_FAMILY_TYPE (0)
 
 /// Buffer size for incoming TCP/IP data (not used here)
 #define THIS_FIRMWARE_TCPIP_LINK_MAX_BUFFER         2048u

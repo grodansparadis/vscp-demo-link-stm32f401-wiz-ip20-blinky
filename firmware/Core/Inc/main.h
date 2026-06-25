@@ -47,6 +47,43 @@ typedef enum {
   VSCP_SUBSTATE_POLL = 0, /**< Polling state */
   VSCP_SUBSTATE_AUTO,     /**< RETR mode */
 } vscp_substate_t;
+
+/*!
+ * @brief Structure representing the persistent configuration of the node.
+ *
+ * This structure holds the persistent configuration data for the node.
+ * The GUID, nickname, user credentials, etc aree often in this storage but
+ * are hardcoded in this demo.
+ * The storage is used to store and retrieve configuration information that
+ * should persist across device resets or power cycles.
+ */
+
+  typedef struct registers {
+  uint8_t zone;                 /**< Zone for the device [P]*/
+  uint8_t subzone;              /**< Subzone for the device [P] */
+  uint8_t status;               /**< Status for the device [P] */
+  uint8_t control;              /**< Control for the device [P] */
+  uint16_t blink_interval;      /**< Blink interval for the device [P] */
+  uint32_t millisecond_counter; /**< Millisecond counter for the device [P] */
+  uint8_t button_zero_opt_byte; /**< Button option byte for the device [P] */
+  uint8_t button_zone;          /**< Button zone for the device [P] */
+  uint8_t button_subzone;       /**< Button subzone for the device [P] */
+  uint8_t nickname_id;          /**< Nickname ID for the device [P] */
+  uint8_t manufacturer_id[4];   /**< Manufacturer ID for the device [P] */
+  uint8_t guid[16];             /**< GUID for the device [P] */
+  uint8_t dm[32];               /**< Decision matrix for the device [P] 4 * 8 */
+  uint16_t nickname;             /**< Nickname for the device [P] */
+  uint8_t userid[5];            /**< User name for authentication [P] */
+  uint8_t user[16];             /**< Password for authentication [P] */
+  uint8_t password[32];         /**< Reserved for future use [P] */
+} registers_t;
+
+typedef union {
+  registers_t data;
+  // Align storage to the number of 32-bit words needed
+  uint32_t word_array[sizeof(registers_t) / 4 + (sizeof(registers_t ) % 4 != 0)];
+} register_union_t;
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -76,7 +113,7 @@ Error_Handler(void);
  */
 
 void
-setGUID(uint8_t * const pguid);
+setGUID(uint8_t *const pguid);
 
 /**
  * @brief Set defaults for the Context Defaults object
@@ -86,9 +123,9 @@ void
 setLinkContextDefaults(vscp_link_ctx_t *pctx);
 
 /*!
-  * @brief Set defaults for the Firmware Context Defaults object
-  * @param pctx Pointer to context
-*/
+ * @brief Set defaults for the Firmware Context Defaults object
+ * @param pctx Pointer to context
+ */
 void
 setFirmwareContextDefaults(vscp_frmw2_firmware_context_t *pfwctx);
 

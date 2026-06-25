@@ -386,7 +386,7 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
 {
   // The fifo is defined in the context for the link protocol which
   // should be in the user data of the firmwarecontext.
-  vscp_link_ctx_t *ctx_link = (vscp_link_ctx_t *) pctx->puserdata;3
+  vscp_link_ctx_t *ctx_link = (vscp_link_ctx_t *) pctx->puserdata;
 
   // Do not allow write to fifo if we are not connected
   if (VSCP_STATE_DISCONNECTED == ctx_link->sock) {
