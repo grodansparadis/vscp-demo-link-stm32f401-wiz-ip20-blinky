@@ -410,7 +410,10 @@ vscp_link_callback_send(vscp_link_ctx_t *pctx, vscp_event_t *pev)
   // This is just to demonstrate how to send an event from the client and 
   // have it processed by the firmware.
 
+  // ctx_link->statistics.cntTransmitFrames++;
+  // ctx_link->statistics.cntTransmitData += pnew->sizeData;
   // if (!vscp_fifo_write(&pctx->fifoEventsOut, pev)) {
+  //   ctx_link->statistics.cntOverruns++;
   //   LOGSTR("Outgoing fifo full, cannot accept event from client\n");
   //   return VSCP_ERROR_FIFO_FULL;
   // }

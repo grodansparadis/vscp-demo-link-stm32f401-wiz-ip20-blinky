@@ -412,8 +412,11 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         pev->pdata[2]   = g_registers.data.button_subzone;
 
         // Add event to the outgoing FIFO for the link protocol to send to client
+        ctx_link.statistics.cntTransmitFrames++;
+        ctx_link.statistics.cntTransmitData += pev->sizeData; 
         if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
-          LOGSTR("Failed to enqueue button press event\r\n");
+          ctx_link.statistics.cntOverruns++;
+          LOGSTR("Failed to enqueue button press event\r\n");          
           vscp_fwhlp_deleteEvent(&pev);
         }
       }
@@ -439,7 +442,10 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         pev->pdata[2]   = g_registers.data.button_subzone;
 
         // Add event to the outgoing FIFO for the link protocol to send to client
+        ctx_link.statistics.cntTransmitFrames++;
+        ctx_link.statistics.cntTransmitData += pev->sizeData; 
         if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
+          ctx_link.statistics.cntOverruns++;
           LOGSTR("Failed to enqueue button start event\r\n");
           vscp_fwhlp_deleteEvent(&pev);
         }
@@ -472,7 +478,10 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         pev->pdata[2]   = g_registers.data.button_subzone;
 
         // Add event to the outgoing FIFO for the link protocol to send to client
+        ctx_link.statistics.cntTransmitFrames++;
+        ctx_link.statistics.cntTransmitData += pev->sizeData;
         if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
+          ctx_link.statistics.cntOverruns++;
           LOGSTR("Failed to enqueue button release event\r\n");
           vscp_fwhlp_deleteEvent(&pev);
         }
@@ -962,7 +971,7 @@ main(void)
   dwt_init();
 
   /* Start IWDG — 10 second timeout */
-  //watchdog_enable();
+  watchdog_enable();
 
   // Switch to IRQ-driven receive for data mode
   uart1_rx_start();

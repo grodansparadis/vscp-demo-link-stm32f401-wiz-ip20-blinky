@@ -28,6 +28,20 @@ static volatile uint8_t g_watchdog_enabled = 0U;
 void
 watchdog_enable(void)
 {
+#ifdef DEBUG
+  /*
+   * Debug build: watchdog is disabled entirely so the debugger can halt
+   * the CPU without triggering a reset.
+   * g_watchdog_enabled stays 0; watchdog_feed() is a no-op.
+   */
+  (void) hiwdg; /* suppress unused-variable warning */
+#else
+  /*
+   * Release build: freeze IWDG counter while the core is halted by a
+   * debugger (harmless when no debugger is attached).
+   */
+  __HAL_DBGMCU_FREEZE_IWDG();
+
   hiwdg.Instance       = IWDG;
   hiwdg.Init.Prescaler = IWDG_PRESCALER_256; /* LSI/256 → 125 Hz         */
   hiwdg.Init.Reload    = 1249U;              /* 1250 ticks / 125 Hz = 10 s */
@@ -37,6 +51,7 @@ watchdog_enable(void)
   }
 
   g_watchdog_enabled = 1U;
+#endif /* DEBUG */
 }
 
 void

@@ -414,9 +414,12 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
       pnew->obid = pev->obid; // Keep the same obid as the original event
 
       if (vscp_fifo_write(&ctx_link->fifoEventsOut, pnew)) {
+        ctx_link->statistics.cntTransmitFrames++;
+        ctx_link->statistics.cntTransmitData += pnew->sizeData;
         LOGSTR("Event written to fifo\n");
       }
       else {
+        ctx_link->statistics.cntOverruns++;
         LOGSTR("Failed to write event to fifo\n");
         vscp_fwhlp_deleteEvent(&pnew);
       }
@@ -599,6 +602,7 @@ vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx,
 int
 vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, uint16_t segcrc, uint32_t time)
 {
+  // We are not segment controller, so we just return success to keep the client happy
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -613,6 +617,7 @@ vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, 
 int
 vscp_frmw2_callback_high_end_server_response(vscp_frmw2_firmware_context_t *pctx)
 {
+  // We are not a high end server, so we just return success to keep the client happy
   return VSCP_ERROR_SUCCESS;
 }
 
