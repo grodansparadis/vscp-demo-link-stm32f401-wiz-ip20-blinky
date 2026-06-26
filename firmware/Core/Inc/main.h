@@ -147,6 +147,19 @@ resetLinkContextDefaults(vscp_link_ctx_t *pctx);
 
 
 /*!
+  * @brief Reset persistent registers to default values.
+  *
+  * This function resets the persistent registers of the device to their default values.
+  * It is typically called during initialization or when a factory reset is requested.
+  * The default values are defined in the blinky.h header file.
+  *
+  * @return None
+  */
+
+void
+resetRegisters(void);
+
+/*!
  * @brief  Restart the WIZnet IP20 module to apply new settings.
  *
  * After saving the configuration, we need to restart the WIZnet IP20 module for the new settings to take effect. This

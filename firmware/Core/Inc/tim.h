@@ -67,6 +67,41 @@ static inline uint64_t usec_now(void)
   return ((uint64_t)hi << 16) | lo;
 }
 
+/**
+ * @brief  Enable the DWT cycle counter.
+ *
+ * Must be called once at startup (after SystemClock_Config) before
+ * nsec_now() is used.
+ */
+void dwt_init(void);
+
+/**
+ * @brief  Nanosecond timestamp (TIM3 µs base + DWT sub-µs).
+ *
+ * Combines the overflow-safe 64-bit TIM3 microsecond counter with the
+ * DWT cycle counter for sub-microsecond resolution.
+ *
+ * Resolution : 1 / SystemCoreClock  (~11.9 ns at 84 MHz).
+ * Accuracy   : ±1 µs at the µs boundary (TIM3 and DWT are not synchronised).
+ *              Duration measurements between two calls cancel this error.
+ * Range      : same as usec_now() — effectively unlimited.
+ *
+ * @return Nanoseconds since TIM3 was started.
+ */
+static inline uint64_t nsec_now(void)
+{
+  uint32_t cyc_per_us = SystemCoreClock / 1000000UL;
+  uint32_t hi, lo, cyc;
+  do {
+    hi  = tim3_ovf;
+    lo  = TIM3->CNT;
+    cyc = DWT->CYCCNT;
+  } while (tim3_ovf != hi); /* retry if TIM3 overflow hit between reads */
+  uint64_t us  = ((uint64_t)hi << 16) | lo;
+  uint32_t sub = (cyc % cyc_per_us) * 1000UL / cyc_per_us; /* 0–999 ns */
+  return us * 1000ULL + sub;
+}
+
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

@@ -77,6 +77,15 @@ typedef struct {
 #define BLINKY_CTRL_ENABLE_BTN_START 0x04u // Bit 2 set to enable button START event, clear to disable
 #define BLINKY_CTRL_ENABLE_BTN_STOP 0x02u    // Bit 1 set to enable button STOP event, clear to disable
 
+#define BLINKY_DEFAULT_REG_ZONE 0u        // Default zone for the device
+#define BLINKY_DEFAULT_REG_SUBZONE 0u     // Default subzone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_ZONE 0u // Default button zone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_SUBZONE 0u // Default button subzone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE 0u // Default button option byte for the device
+#define BLINKY_DEFAULT_REG_BLINK_INTERVAL 1000u // Default blink interval in milliseconds
+#define BLINKY_DEFAULT_REG_CONTROL (BLINKY_CTRL_ENABLE_LED | BLINKY_CTRL_ENABLE_BTN | BLINKY_CTRL_ENABLE_BTN_TURNON | BLINKY_CTRL_ENABLE_BTN_START | BLINKY_CTRL_ENABLE_BTN_STOP)
+#define BLINKY_DEFAULT_REG_NICKNAME 0x10u // Default nickname for the device
+
 /*
   ----------------------------------------------------------------------------
                                    Blinky

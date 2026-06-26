@@ -181,5 +181,19 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
 
 /* USER CODE BEGIN 1 */
 
+/**
+ * @brief  Enable the DWT cycle counter.
+ *
+ * Enables the trace unit (TRCENA) and resets then starts CYCCNT so that
+ * nsec_now() has a valid sub-microsecond source.  Safe to call multiple
+ * times; subsequent calls are no-ops in effect.
+ */
+void dwt_init(void)
+{
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; /* enable trace/DWT */
+  DWT->CYCCNT       = 0U;
+  DWT->CTRL        |= DWT_CTRL_CYCCNTENA_Msk;     /* start cycle counter */
+}
+
 /* USER CODE END 1 */
 

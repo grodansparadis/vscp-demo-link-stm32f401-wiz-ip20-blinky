@@ -47,6 +47,7 @@
 #include "vscp-projdefs.h"
 
 #include <flash_storage.h>
+#include "watchdog.h"
 
 #include <vscp-fifo.h>
 
@@ -103,6 +104,12 @@ vscp_frmw2_callback_get_guid(vscp_frmw2_firmware_context_t *pctx)
   return pctx->guid;
 }
 
+// ----------------------------------------------------------------------------
+
+/*!
+  Enable in vscp_projdefs.h to allow writing to write-protected locations
+  (e.g., manufacturer ID, GUID, etc.)
+*/
 #ifdef THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -139,6 +146,8 @@ vscp_frmw2_callback_write_guid(vscp_frmw2_firmware_context_t *pctx, uint8_t pos,
 }
 
 #endif // THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
+
+// ----------------------------------------------------------------------------
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_read_user_reg
@@ -278,7 +287,8 @@ int
 vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t stdreg)
 {
   if (VSCP_STD_REGISTER_USER_ID == stdreg) {
-    // TODO eeprom_write(&eeprom, STDREG_USER_ID0, pctx->userId[0]);
+    // Update persistent values
+    update_persistent_storage();
   }
 
   return VSCP_ERROR_SUCCESS;
@@ -291,7 +301,8 @@ vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t 
 void
 vscp_frmw2_callback_enter_bootloader(vscp_frmw2_firmware_context_t *pctx)
 {
-  // TODO implement if bootloader entry is supported by this firmware
+  // No bootloader support in this demo firmware
+  return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -301,6 +312,7 @@ vscp_frmw2_callback_enter_bootloader(vscp_frmw2_firmware_context_t *pctx)
 int
 vscp_frmw2_callback_report_dmatrix(vscp_frmw2_firmware_context_t *pctx)
 {
+  // Not supported but we just return a success code to keep the client happy
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -311,6 +323,7 @@ vscp_frmw2_callback_report_dmatrix(vscp_frmw2_firmware_context_t *pctx)
 int
 vscp_frmw2_callback_report_mdf(vscp_frmw2_firmware_context_t *pctx)
 {
+  // Not supported but we just return a success code to keep the client happy
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -321,8 +334,30 @@ vscp_frmw2_callback_report_mdf(vscp_frmw2_firmware_context_t *pctx)
 int
 vscp_frmw2_callback_report_events_of_interest(vscp_frmw2_firmware_context_t *pctx)
 {
+  // We want all events, so we just return a success code to keep the client happy
   return VSCP_ERROR_SUCCESS;
 }
+
+/*
+  Resolution is 1/84 MHz ≈ 11.9 ns, not 1 ns
+  DWT->CYCCNT wraps every ~51 s (32-bit at 84 MHz)
+  For absolute timestamps, combine with usec_now(): take a µs base + DWT delta for the
+  sub-µs part
+
+typedef struct {
+  uint64_t usec;
+  uint32_t sub_ns;
+} hires_ts_t;
+
+static inline hires_ts_t
+hires_now(void)
+{
+  hires_ts_t t;
+  t.usec   = usec_now();
+  t.sub_ns = (DWT->CYCCNT % (SystemCoreClock / 1000000UL)) * (1000000000UL / SystemCoreClock);
+  return t;
+}
+*/
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_get_timestamp
@@ -331,18 +366,21 @@ vscp_frmw2_callback_report_events_of_interest(vscp_frmw2_firmware_context_t *pct
 uint64_t
 vscp_frmw2_callback_get_timestamp(vscp_frmw2_firmware_context_t *pctx)
 {
-  return usec_now();
+  // We can't get true nanosecond resolution on this platform, so we just return microseconds * 1000 to get nanoseconds.
+  // hires_ts_t t = hires_now();
+  // return t.usec * 1000 + t.sub_ns / 1000;
+  return nsec_now();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_get_time
 //
 
-int
-vscp_frmw2_callback_get_time(vscp_frmw2_firmware_context_t *pctx, const vscp_event_ex_t *pex)
-{
-  return VSCP_ERROR_SUCCESS;
-}
+// int
+// vscp_frmw2_callback_get_time(vscp_frmw2_firmware_context_t *pctx, const vscp_event_ex_t *pex)
+// {
+//   return VSCP_ERROR_SUCCESS;
+// }
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_send_event
@@ -402,6 +440,7 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
 int
 vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
 {
+  resetRegisters();
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -412,10 +451,13 @@ vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
 int
 vscp_frmw2_callback_write_user_id(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
 {
-  // TODO // TODO eeprom_write(&eeprom, STDREG_USER_ID0 + pos, val);
+  g_registers.data.userdata[pos] = val;
 
-  // Commit changes to 'eeprom'
-  // TODO eeprom_commit(&eeprom);
+  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
+                                    g_registers.word_array,
+                                    sizeof(register_union_t) / sizeof(uint16_t))) {
+    LOGSTR("Failed to write flash storage\r\n");
+  }
 
   return VSCP_ERROR_SUCCESS;
 }
@@ -489,6 +531,13 @@ vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip
 
 /*
   New version of the the firmware just use a 64 bit timestamp and not the time field in the event.
+
+  If the system has a real time clock, the time field should be converted to a 
+  64 bit timestamp and stored in the event. The time field is then set to zero.
+  If the timestamp is set to zero it will be set to current in the first communication
+  interface it traverses.
+  The vscp_fwhlp_to_unix_ns() function can be used to convert the time field to a 64 bit 
+  timestamp.
 */
 
 int
@@ -501,7 +550,7 @@ vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_eve
   pev->head |= VSCP_HEADER16_FRAME_VERSION_UNIX_NS;
   pev->year         = 0xffff;
   pev->month        = 0xff;
-  pev->timestamp_ns = vscp_frmw2_callback_get_timestamp(pctx) * 1000; // Convert microseconds to nanoseconds
+  pev->timestamp_ns = vscp_frmw2_callback_get_timestamp(pctx); 
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -512,6 +561,10 @@ vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_eve
 int
 vscp_frmw2_callback_reset(vscp_frmw2_firmware_context_t *pctx)
 {
+  // Reset the device. This is a placeholder for the actual reset logic, 
+  // which may involve setting a flag or calling a system reset function.
+
+  NVIC_SystemReset();
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -522,6 +575,7 @@ vscp_frmw2_callback_reset(vscp_frmw2_firmware_context_t *pctx)
 int
 vscp_frmw2_callback_feed_watchdog(vscp_frmw2_firmware_context_t *pctx)
 {
+  watchdog_feed();
   return VSCP_ERROR_SUCCESS;
 }
 

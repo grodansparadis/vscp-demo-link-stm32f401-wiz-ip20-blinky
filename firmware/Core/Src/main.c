@@ -39,6 +39,7 @@
 #include <vscp-binary-protocol.h>
 #include "vscp-link-protocol-callbacks.h"
 #include "vscp-firmware-level2-callbacks.h"
+#include "watchdog.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -135,17 +136,17 @@ char g_macaddrstr[20] = { 0 };
  */
 
 register_union_t g_registers = { .data = {
-                                   .zone                 = 0,
-                                   .subzone              = 0,
-                                   .control              = 0b11001110, // 0b11001110
-                                   .blink_interval       = 500,
-                                   .button_zero_opt_byte = 0,
-                                   .button_zone          = 0,
-                                   .button_subzone       = 0,
+                                   .zone                 = BLINKY_DEFAULT_REG_ZONE,
+                                   .subzone              = BLINKY_DEFAULT_REG_SUBZONE,
+                                   .control              = BLINKY_DEFAULT_REG_CONTROL,
+                                   .blink_interval       = BLINKY_DEFAULT_REG_BLINK_INTERVAL,
+                                   .button_zero_opt_byte = BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE,
+                                   .button_zone          = BLINKY_DEFAULT_REG_BUTTON_ZONE,
+                                   .button_subzone       = BLINKY_DEFAULT_REG_BUTTON_SUBZONE,
                                    .manufacturer_id      = { 0x01, 0x02, 0x03, 0x04 },
                                    .dm                   = { 0 },
-                                   .nickname             = 0x10,
-                                   .userdata             = { 'u', 's', 'e', 'r', '\0' },
+                                   .nickname             = BLINKY_DEFAULT_REG_NICKNAME,
+                                   .userdata             = { 0x11, 0x22, 0x33, 0x44, '\0' },
                                  } };
 
 volatile uint8_t g_user_reg_status       = 0; // Status register for the device (std registers) [NON PERSISTENT]
@@ -847,6 +848,48 @@ resetLinkContextDefaults(vscp_link_ctx_t *pctx)
   vscp_fifo_clear(&pctx->fifoEventsIn);
 }
 
+/*!
+ * @brief  Reset the VSCP registers to default values.
+ *
+ * This function resets all VSCP registers to their default values as defined
+ * by the firmware. It is typically called during initialization or when a
+ * reset command is received from a client.
+ *
+ * Note: This function does not affect the GUID, which is set separately during
+ * initialization and should remain constant for the device.
+ */
+void
+resetRegisters(void)
+{
+  // Reset all registers to default values
+  memset(&g_registers, 0, sizeof(g_registers));
+  g_registers.data.control              = BLINKY_DEFAULT_REG_CONTROL;
+  g_registers.data.button_zone          = BLINKY_DEFAULT_REG_BUTTON_ZONE;
+  g_registers.data.button_subzone       = BLINKY_DEFAULT_REG_BUTTON_SUBZONE;
+  g_registers.data.button_zero_opt_byte = BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE;
+  g_registers.data.zone                 = BLINKY_DEFAULT_REG_ZONE;
+  g_registers.data.subzone              = BLINKY_DEFAULT_REG_SUBZONE;
+  g_registers.data.control              = BLINKY_DEFAULT_REG_CONTROL;
+  g_registers.data.blink_interval       = BLINKY_DEFAULT_REG_BLINK_INTERVAL;
+  g_registers.data.manufacturer_id[0]   = 0x01;
+  g_registers.data.manufacturer_id[1]   = 0x02;
+  g_registers.data.manufacturer_id[2]   = 0x03;
+  g_registers.data.manufacturer_id[3]   = 0x04;
+  memset(&g_registers.data.dm, 0, sizeof(g_registers.data.dm));
+  g_registers.data.nickname    = BLINKY_DEFAULT_REG_NICKNAME;
+  g_registers.data.userdata[0] = 0x11;
+  g_registers.data.userdata[1] = 0x22;
+  g_registers.data.userdata[2] = 0x33;
+  g_registers.data.userdata[3] = 0x44;
+  g_registers.data.userdata[4] = '\0';
+  
+  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
+                                    g_registers.word_array,
+                                    sizeof(register_union_t) / sizeof(uint16_t))) {
+    LOGSTR("Failed to write flash storage\r\n");
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // validate_user
 //
@@ -874,11 +917,11 @@ main(void)
   int rv;
   char buf[2672]; // Buffer for cmd responses and incoming data and event conversions
   uint32_t now;
-  //size_t rx_len;
+  // size_t rx_len;
   //(void) rx_len; // only used to capture AT response lengths during init
-  // uint32_t led_blink_until    = 0; // LED blink timestamp
-  // uint32_t heartbeat_interval = 0; // Heartbeat clock
-  // vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
+  //  uint32_t led_blink_until    = 0; // LED blink timestamp
+  //  uint32_t heartbeat_interval = 0; // Heartbeat clock
+  //  vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -914,6 +957,12 @@ main(void)
   if (HAL_TIM_Base_Start_IT(&htim3) != HAL_OK) {
     Error_Handler();
   }
+
+  /* Enable DWT cycle counter for sub-µs / nanosecond timestamps (nsec_now) */
+  dwt_init();
+
+  /* Start IWDG — 10 second timeout */
+  //watchdog_enable();
 
   // Switch to IRQ-driven receive for data mode
   uart1_rx_start();
@@ -999,8 +1048,8 @@ main(void)
         if (uart1_rx_scan("<CONNECT>") == 0) {
           uart1_rx_consume_through("<CONNECT>");
           LOGSTR("Received <CONNECT>\r\n");
-          //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          // led_blink_until = HAL_GetTick() + 50u;
+          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+          //  led_blink_until = HAL_GetTick() + 50u;
           ctx_link.sock = VSCP_STATE_CONNECTED;
           LOGSTR("State: DISCONNECTED -> CONNECTED\r\n");
           vscp_link_connect(&ctx_link);
@@ -1015,8 +1064,8 @@ main(void)
         if (uart1_rx_scan("<DISCONNECT>") == 0) {
           uart1_rx_consume_through("<DISCONNECT>");
           LOGSTR("Received <DISCONNECT>\n");
-          //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          // led_blink_until = HAL_GetTick() + 50u;
+          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+          //  led_blink_until = HAL_GetTick() + 50u;
           HAL_UART_Transmit(&huart1, (uint8_t *) "+OK - Disconnect.\r\n", 19, HAL_MAX_DELAY);
           ctx_link.sock = VSCP_STATE_DISCONNECTED;
           LOGSTR("State: CONNECTED -> DISCONNECTED\r\n");
@@ -1024,7 +1073,7 @@ main(void)
         else if (uart1_rx_getline(buf, sizeof(buf), 0) == 0) {
           /* Consume and log incoming VSCP commands */
           LOGSTR("VSCP cmd: %s", buf);
-          
+
           vscp_link_parser(&ctx_link, buf);
         }
         else if (ctx_link.bRcvLoop && ctx_link.bValidated) {
@@ -1066,17 +1115,20 @@ main(void)
         break;
     }
 
+    /* Feed the watchdog every loop iteration */
+    watchdog_feed();
+
     // * * * LED BLINK * * *
-    /* 
+    /*
       Toggle the state of pin 13 on GPIO port C
       Blink if enabled in control register and if
-      blink interval is set to a non-zero value. 
+      blink interval is set to a non-zero value.
       The blink interval is in milliseconds.
     */
     if (g_registers.data.blink_interval && (g_registers.data.control & BLINKY_CTRL_ENABLE_LED)) {
       if ((HAL_GetTick() - now) >= g_registers.data.blink_interval) {
         // Toggle the LED pin
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);  
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
         now = HAL_GetTick();
         // Toggle LED active bit in status register
         g_user_reg_status ^= BLINKY_STATUS_LED_ON;
