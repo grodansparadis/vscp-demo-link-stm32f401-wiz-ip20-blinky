@@ -1,4 +1,8 @@
 # vscp-demo-link-stm32f103-wiz-ip20-blinky
+
+![](images/test-setup1.jpg)
+
+
 [VSCP blinky demo](https://github.com/grodansparadis/vscp-firmware/wiki) for STM32F103C8T6 "Blue Pill" with [WIZnet IP20 module](https://wiznet.io/products/serial-to-ethernet-modules/wiz-ip20). The firmware is built with CMake and STM32CubeMX-generated code, using the GNU Arm Embedded Toolchain. It demonstrates basic GPIO control for blinking an LED and configures and sets up network connectivity. 
 
 The Blinky demo general functionality is described [here](https://github.com/grodansparadis/vscp/wiki/Blinky).The VSCP blinky demo is the simplest possible VSCP application, toggling a LED on and off at a configurable interval and generate events from a single button. It is general demo available on different platforms and transports. This project serves as a starting point to learn more about VSCP and for developing more complex VSCP applications on STM32 microcontrollers with some sort of connectivity. The VSCP blinky demo is designed to be simple and easy to understand, making it ideal for learning how to use the VSCP protocol and develop applications for embedded systems. It is implemented on different platforms, including STM32 microcontrollers, and can be used as a reference for building your own VSCP applications.
