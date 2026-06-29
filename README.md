@@ -21,19 +21,20 @@ The Blinky demo general functionality is described [here](https://github.com/gro
 
 ## Persistent Flash Storage
 
-2 KB of internal flash is reserved for persistent storage (registers, configuration) using the last two pages of the 32 KB flash:
+128 KB of internal flash is reserved for persistent storage (registers, configuration) using the last page of the 512 KB flash:
 
-| Region  | Start        | End          | Size  | Pages |
-|---------|-------------|--------------|-------|-------|
-| Firmware | `0x08000000` | `0x080077FF` | 30 KB | 0–29  |
-| Storage  | `0x08007800` | `0x08007FFF` |  2 KB | 30–31 |
+| Region  | Start        | Size  | 
+|---------|-------------|-------|
+| Ram     | `0x20000000` | 96 KB |
+| Firmware | `0x08000000` | 384 KB | 
+| Storage  | `0x08060000` |  128 KB | 
 
-The linker script ([STM32F103XX_FLASH.ld](firmware/STM32F103XX_FLASH.ld)) reduces the `FLASH` region to 30 KB and defines a separate `STORAGE` region. The driver is in [Core/Inc/flash_storage.h](firmware/Core/Inc/flash_storage.h) and [Core/Src/flash_storage.c](firmware/Core/Src/flash_storage.c).
+The linker script ([STM32F401RETx_FLASH.ld](firmware/STM32F401RETx_FLASH.ld)) reduces the `FLASH` region to 384 KB and defines a separate `STORAGE` region. The driver is in [Core/Inc/flash_storage.h](firmware/Core/Inc/flash_storage.h) and [Core/Src/flash_storage.c](firmware/Core/Src/flash_storage.c).
 
 Key constraints:
-- A full page (1 KB) must be **erased** before any byte in it can be written
+- A full sector (128 KB) must be **erased** before any byte in it can be written
 - Writes are **16-bit (half-word)** aligned
-- Flash endurance: ~**10 000** erase cycles per page
+- Flash endurance: ~**10 000** erase cycles per sector
 
 ```c
 #include "flash_storage.h"
@@ -54,22 +55,10 @@ flash_storage_read(0, buf, 2);
 
 ![](schema/connection%20diagram.svg)
 
-Power with +5V to the WIZ-IP20 module. 
 
-- Connect the W5500 to the STM32F103C8T6 according to the following pinout:
-  - W5500 SCK -> PA5
-  - W5500 MISO -> PA6
-  - W5500 MOSI -> PA7
-  - W5500 CS -> PB6
-  - W5500 RST -> PB7
-
-- Connect the ST-Link V2 to the STM32F103C8T6 for programming and debugging:
-  - ST-Link SWCLK -> PA14
-  - ST-Link SWDIO -> PA13
-  - ST-Link GND -> GND
-  - ST-Link VCC -> 3.3V (optional, can power the board from USB or external source)
-- Connect an LED with a suitable resistor to PB0 for blinking (or use the onboard LED if available)
-- Debug output is available on PA2 (USART2 TX) for printf debugging. Connect a serial TTL to USB adapter to PA2 and GND to view debug output on your computer.
+- Connect an LED with a suitable resistor to PA5 for blinking (or use the onboard LED if available)
+- Adda button to PC13 for user input (or use the onboard button if available)
+- Extra debug output is available on PA2/PA3 (USART2 TX/RX) for printf debugging. Connect a serial TTL to USB adapter to PA2 and GND to view debug output on your computer. On the nucleo card the built in ST_Link debugger provides a virtual COM port for this purpose. The default baud rate is 115200, 8N1.
 
 
 ## Build the project
