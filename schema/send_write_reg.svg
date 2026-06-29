@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="send_write_reg.svg"
+   inkscape:version="1.4 (e7c3feb100, 2024-10-09)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="1.9074225"
+     inkscape:cx="406.04533"
+     inkscape:cy="438.02565"
+     inkscape:window-width="1920"
+     inkscape:window-height="968"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <text
+       xml:space="preserve"
+       style="font-weight:bold;font-size:2.11667px;font-family:Sans;-inkscape-font-specification:'Sans, Bold';text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:none;fill-opacity:0.979858;stroke:#060505;stroke-width:0.600001;stroke-dasharray:1.2, 0.600001;stroke-opacity:0.989048;paint-order:markers stroke fill"
+       x="36.291279"
+       y="75.132759"
+       id="text1"><tspan
+         sodipodi:role="line"
+         id="tspan1"
+         style="stroke-width:0.6;fill:none"></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-weight:bold;font-size:6.94144px;font-family:Sans;-inkscape-font-specification:'Sans, Bold';text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#800000;fill-opacity:0.979858;stroke:#ffffff;stroke-width:1.96765;stroke-dasharray:3.93529, 1.96765;stroke-opacity:0.989048;paint-order:markers stroke fill"
+       x="59.978294"
+       y="73.651138"
+       id="text2"
+       transform="scale(0.9239474,1.0823127)"><tspan
+         sodipodi:role="line"
+         id="tspan2"
+         style="stroke:#ffffff;stroke-width:1.96764;stroke-opacity:0.989048"
+         x="59.978294"
+         y="73.651138">send 0,0,11,0,,0,-,16,4,0x03</tspan></text>
+    <path
+       style="fill:#800000;fill-opacity:0.979858;stroke:#ffffff;stroke-width:0.600001;stroke-dasharray:1.2, 0.600001;stroke-opacity:0.989048;paint-order:markers stroke fill"
+       d="M 75.598307,112.63454 56.178558,99.734281"
+       id="path2" />
+  </g>
+</svg>

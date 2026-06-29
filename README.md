@@ -1,11 +1,9 @@
 # vscp-demo-link-stm32f103-wiz-ip20-blinky
 [VSCP blinky demo](https://github.com/grodansparadis/vscp-firmware/wiki) for STM32F103C8T6 "Blue Pill" with [WIZnet IP20 module](https://wiznet.io/products/serial-to-ethernet-modules/wiz-ip20). The firmware is built with CMake and STM32CubeMX-generated code, using the GNU Arm Embedded Toolchain. It demonstrates basic GPIO control for blinking an LED and configures and sets up network connectivity. 
 
-VSCP blink is the simplest possible VSCP application, toggling an LED on and off at a configurable interval. This project serves as a starting point for developing more complex VSCP applications on STM32 microcontrollers with (Ethernet) connectivity. The VSCP blink demo is designed to be simple and easy to understand, making it ideal for learning how to use the VSCP protocol and develop applications for embedded systems. It is implemented on different platforms, including STM32 microcontrollers, and can be used as a reference for building your own VSCP applications.
+The Blinky demo general functionality is described [here](https://github.com/grodansparadis/vscp/wiki/Blinky).The VSCP blinky demo is the simplest possible VSCP application, toggling a LED on and off at a configurable interval and generate events from a single button. It is general demo available on different platforms and transports. This project serves as a starting point to learn more about VSCP and for developing more complex VSCP applications on STM32 microcontrollers with some sort of connectivity. The VSCP blinky demo is designed to be simple and easy to understand, making it ideal for learning how to use the VSCP protocol and develop applications for embedded systems. It is implemented on different platforms, including STM32 microcontrollers, and can be used as a reference for building your own VSCP applications.
 
 ## Hardware
-- [STM32F103C8T6 "Blue Pill" development board](https://stm32-base.org/boards/STM32F103C8T6-Blue-Pill.html)
-- [WIZnet W5500 Ethernet module](https://www.wiznet.io/product-item/w5500/) (SPI interface)
 - [ST-Link V2 programmer/debugger](https://www.st.com/en/development-tools/st-link-v2.html)
 - [WIZ-IP20 IO Module](https://docs.wiznet.io/Product/Modules/Serial-to-Ethernet-Module/WIZ-IP20/ip20-io)
 - [W55RP20-S2E Command Manual](https://docs.wiznet.io/Product/Chip/MCU/Pre-programmed-MCU/W55RP20-S2E/command-manual-en)
@@ -145,3 +143,101 @@ arm-none-eabi-gdb build/firmware.elf
 # but with less features than OpenOCD
 st-util
 ```
+
+## Testing the firmware
+
+As default the demo will use the static IP address 192.168.1.88. You can change this and other network settings in the **wiznet-ip20.h** file and recomile the firmware and flash new firmware. The WIZ-IP20 module must be connected to the same network as your computer. 
+
+First test is to use a ping command to test connectivity:
+
+```bash
+ping 192.168.1.88
+```
+
+If no response is received, check the wiring and network settings. 
+
+You can now use **telnet** to connect to the WIZ-IP20 module on port 9598. 
+
+```bash
+telnet 192.168.1.88 9598
+```
+
+You should see a prompt for the VSCP link server
+
+```bash
+akhe@fluorine:~$ telnet 192.168.1.88 9598
+Trying 192.168.1.88...
+Connected to 192.168.1.88.
+Escape character is '^]'.
+Welcome to the VSCP Blinky demo
+STM32F401 + WIZnet IP20
+Version: 0.0.1 - 210
+Copyright (C) 2000-2026 Grodans Paradis AB
+https://www.grodansparadis.com
++OK
+``` 
+
+You can now issue commands to the VSCP link server. But to get access to all commands you need to login with the default username and password. 
+
+```bash
+user vscp
+password secret
+```
+
+You can now type **help** to get a list of all available commands. The VSCP link protocol is described in detail in the [VSCP link protocol specification](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink).
+
+## Write registers
+
+VSCP use events to control things like a LED. Initially the LED will blink with a 500ms blink interval. You can use the **send** command to send events to the VSCP link server. Register 4 and 5 holds the blink interval. The following example will change the blink interval of the LED to 1000ms. 
+
+```bash
+send 0,0,11,0,,0,-,16,4,0x03
+send 0,0,11,0,,0,-,16,5,0xe8
+```
+
+Here we use the [write register event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type11) to write to register 4 and 5. The first event will write the value 3 to register 4 and the second event will write the value 232 (0xe8) to register 5. That is 03e8 is written to the blink interval registers, the blink interval is calculated as 1000ms = 03e8h = 1000 decimal.
+
+Use
+
+```bash
+send 0,0,11,0,,0,-,16,4,0x01
+send 0,0,11,0,,0,-,16,5,0xf4
+```
+
+to set the blink interval back to 500ms. 
+
+What we do here is to send a VSCP event to the VSCP link server. The event is sent as a [comma separated list of numbers](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink?id=tcpip-send). In this case the link server forward the event to the node itself. The node will then process the event and change the blink interval.
+
+The first number is the **head** for the VSCP frame. This is always 0 for this demo but can have bits set for different functionality.
+
+The second byte is the **VSCP class**. This is kind of a group of events, in this case protocol related functionality. [There is a lot of events defined](https://grodansparadis.github.io/vscp-doc-spec/#/./level_i_events) for different purposes.
+
+The third number is the **VSCP type**, in this case the [write register event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type11). 
+
+The forth number is the **obid**, object id, which is used to identify the event. This is always 0 for this demo. It is used by higher level software to identify events.
+
+Then we have (number four and five) the **timefield** and the **timestamp**. The timefield is always empty for modern VSCP nodes (two commas). It was previously used to supply a ISO formatted date and time in older VSCP nodes (YYYY:MM:DDTHH:MM:SS). Now the next number after the two commas, is the 64-bit timestamp, holds this information with nanosecond resolution. We can set it to 0 for this demo.
+
+The dash is a placeholder for the [GUID](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_globally_unique_identifiers?id=globally-unique-identifiers) (globally unique identifier)- We can set any GUID here in the this demo, but in a real world scenario you will see something like **00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:01** here. 
+
+After the GUID the data for the event is listed as a comma separated list of numbers. Each of the value numbers here can be set as decimal, binary, octal or hex values. Every event has different data format, in this case the first byte is the node id, the second the register to write and the third the value that should be written.
+
+## Read GUID
+
+If you cant to check the GUID of the demo node you can use the [read GUID command](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink?id=tcpip-read-guid) to read the GUID. The following example will read the GUID of the demo node.
+
+```bash
+getguid
+```
+For this demo the GUID is constructed from the 96-bit unique id stored in the STM32F401 microcontroller. 
+
+## Read registers
+
+If you want to read the blink interval registers you can use the [read register event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type10) to read the values. The following example will read the blink interval registers 4 and 5.
+
+```bash
+
+
+
+
+

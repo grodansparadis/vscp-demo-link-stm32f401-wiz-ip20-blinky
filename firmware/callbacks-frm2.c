@@ -58,7 +58,6 @@
 #include <wiznet-ip20.h>
 #include "main.h"
 #include "blinky.h"
-#include "regdefs.h"
 #include "vscp.h"
 
 extern register_union_t g_registers;             // Global register storage
@@ -144,7 +143,6 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
       }
       else {
         ctx_link->statistics.cntOverruns++;
-        LOGSTR("Failed to write event to fifo\n");
         vscp_fwhlp_deleteEvent(&pnew);
       }
     }
