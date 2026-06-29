@@ -44,7 +44,7 @@ typedef struct {
   char nodeName[32];   // User name for node
   uint8_t nodeZone;    // VSCP zone for node
   uint8_t nodeSubzone; // VSCP subzone for node
-  uint8_t guid[16];    // GUID for node (default: Constructed from MAC address)
+  //uint8_t guid[16];    // GUID for node ()
   uint8_t encryptLvl;  // Encryption level for UDP messages (0 = none, 1 = AES128, 2 = AES192, 3 = AES256)
   uint8_t pmk[16];     // System security key for encryption (AES128)
   uint8_t pmkLen;      // For future use, Now always 16 (AES128)

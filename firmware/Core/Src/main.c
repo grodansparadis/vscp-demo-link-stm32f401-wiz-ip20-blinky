@@ -824,7 +824,7 @@ setGUID(uint8_t *const pguid)
   pguid[13] = (uid >> 8) & 0xFF;
   pguid[14] = uid & 0xFF;
 
-  pguid[15] = ctx_firmware.nickname; // No nickname discobery for level II node
+  pguid[15] = ctx_firmware.nickname; // No nickname discovery for level II node
 }
 
 /*!
@@ -852,6 +852,7 @@ resetLinkContextDefaults(vscp_link_ctx_t *pctx)
   memset(&pctx->statistics, 0, sizeof(vscp_statistics_t)); // VSCP Statistics
   memset(&pctx->status, 0, sizeof(vscp_status_t));         // VSCP status
   pctx->last_rcvloop_time = 0;
+  ctx_link.sock = VSCP_STATE_DISCONNECTED;
 
   // Drain the fifos
   vscp_fifo_clear(&pctx->fifoEventsOut);
@@ -935,6 +936,7 @@ main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  setGUID(ctx_link.guid); // Set the GUID for the device based on unique MCU ID
 
   /* USER CODE END Init */
 

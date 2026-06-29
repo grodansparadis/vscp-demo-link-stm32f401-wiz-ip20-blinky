@@ -177,7 +177,7 @@ vscp_link_callback_get_interface(vscp_link_ctx_t *pctx, uint16_t index, struct v
     case 0:
       pif->idx  = index;
       pif->type = VSCP_INTERFACE_TYPE_LEVEL2DRV;
-      memcpy(pif->guid, g_persistent.guid, 16);
+      memcpy(pif->guid, pctx->guid, 16);
       strncpy(pif->description, "Interface for the device itself", sizeof(pif->description));
       break;
 
@@ -554,7 +554,7 @@ vscp_link_callback_get_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  memcpy(pguid, g_persistent.guid, 16);
+  memcpy(pguid, pctx->guid, 16);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -569,8 +569,13 @@ vscp_link_callback_set_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  //memcpy(g_persistent.guid, pguid, 16);
-  setGUID(pctx->guid);
+  // The GUID is not normally writable. You must enable the compile switch
+  // VSCP_CONFIG_ENABLE_SET_GUID in vscp-projdefs.h to allow this. This is to
+  // prevent accidental overwriting of the GUID. The GUID is normally set in the
+  // persistent storage and should not be changed. But for testing purposes, we
+  // allow it to be changed here if the compile switch is enabled.
+  
+  memcpy(pctx->guid, pguid, 16);
   return VSCP_ERROR_SUCCESS;
 }
 

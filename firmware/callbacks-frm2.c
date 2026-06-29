@@ -139,7 +139,6 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
       if (vscp_fifo_write(&ctx_link->fifoEventsOut, pnew)) {
         ctx_link->statistics.cntTransmitFrames++;
         ctx_link->statistics.cntTransmitData += pnew->sizeData;
-        LOGSTR("Event written to fifo\n");
       }
       else {
         ctx_link->statistics.cntOverruns++;

@@ -47,12 +47,18 @@ flash_storage_read(0, buf, 2);
 ```
 
 ### Setup
+
+![](schema/connection%20diagram.svg)
+
+Power with +5V to the WIZ-IP20 module. 
+
 - Connect the W5500 to the STM32F103C8T6 according to the following pinout:
   - W5500 SCK -> PA5
   - W5500 MISO -> PA6
   - W5500 MOSI -> PA7
   - W5500 CS -> PB6
   - W5500 RST -> PB7
+
 - Connect the ST-Link V2 to the STM32F103C8T6 for programming and debugging:
   - ST-Link SWCLK -> PA14
   - ST-Link SWDIO -> PA13
@@ -229,15 +235,59 @@ If you cant to check the GUID of the demo node you can use the [read GUID comman
 ```bash
 getguid
 ```
-For this demo the GUID is constructed from the 96-bit unique id stored in the STM32F401 microcontroller. 
+For this demo the GUID is constructed from the 96-bit unique id stored in the STM32F401 microcontroller. It will look something like this: 
+
+```bash
+FD:00:02:00:5D:00:5E:33:33:51:0C:34:35:34:37:10
+```
+
+The last byte is the nickname for the node, in this case 0x10/16. You recognize it from the write commands above where it is data byte 0. The nickname can be changed by writing to register 0x91/145 in [the standard register space](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_register_abstraction_model?id=register_abstraction_model) of a device. The nickname is used by the VSCP link server to identify the node.
 
 ## Read registers
 
 If you want to read the blink interval registers you can use the [read register event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type10) to read the values. The following example will read the blink interval registers 4 and 5.
 
 ```bash
+send 0,0,9,0,,0,-,16,4
+send 0,0,9,0,,0,-,16,5
+```
+
+Type is now 9 instead of 11 and data byte 2, the data to write is not needed. Use 
 
 
+```bash
+retr
+```
 
+twice to poll data from the node you will get a reply from the node with the values of the registers. The reply will look something like this:
+
+```bash
+352,0,10,0,,2369722372559,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00,4,1
++OK - Success.
+
+352,0,10,0,,2379583825845,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00,5,244
++OK - Success.
+```
+
+Register 4 has content 1 and register 5 content 244. That is 01f4h = 500 decimal, the blink interval is 500ms.
+
+You may also get two events when you read events from the node. 
+
+[Class=1026, Type= 2](https://grodansparadis.github.io/vscp-doc-spec/#/./class2.information?id=type2) is a [heartbeat event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type2) that is sent every 60 seconds by the node. It is used to indicate that the node is alive and functioning. 
+
+and
+
+[1024,20](https://grodansparadis.github.io/vscp-doc-spec/#/./class2.protocol?id=type20) which is the high ens server capabilities event. It is sent by the node to indicate its capabilities and features. It is used by clients to determine what the node can do and how it can be used.
+
+
+As you now understand and see the VSCP link protocol is very simple and easy to use. It is a great way to get started with VSCP and to learn more about the protocol. But to work with it using telnet is quite hard work. It is much easier to use a VSCP client like [VSCP Works](https://github.com/grodansparadis/vscp-works-qt) or code like the [vscp-helper-lib](https://github.com/grodansparadis/vscp-helper-lib).
+
+Quit the telnet session with
+
+```bash
+quit
+```
+
+### VSCP Works
 
 
