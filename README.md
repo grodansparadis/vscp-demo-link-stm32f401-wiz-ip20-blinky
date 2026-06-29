@@ -60,6 +60,8 @@ flash_storage_read(0, buf, 2);
 - Adda button to PC13 for user input (or use the onboard button if available)
 - Extra debug output is available on PA2/PA3 (USART2 TX/RX) for printf debugging. Connect a serial TTL to USB adapter to PA2 and GND to view debug output on your computer. On the nucleo card the built in ST_Link debugger provides a virtual COM port for this purpose. The default baud rate is 115200, 8N1.
 
+If you need to connect an externa ST-Link programmer/debugger, connect SWDIO to PA13, SWCLK to PA14, GND to GND and 3.3V to 3.3V. The WIZ-IP20 module is connected to the STM32F401 via UART1 (PA9/PA10) and to the network via Ethernet.
+
 
 ## Build the project
 

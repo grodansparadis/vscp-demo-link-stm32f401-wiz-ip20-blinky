@@ -574,7 +574,7 @@ vscp_link_callback_set_guid(vscp_link_ctx_t *pctx, uint8_t *pguid)
   // prevent accidental overwriting of the GUID. The GUID is normally set in the
   // persistent storage and should not be changed. But for testing purposes, we
   // allow it to be changed here if the compile switch is enabled.
-  
+
   memcpy(pctx->guid, pguid, 16);
   return VSCP_ERROR_SUCCESS;
 }
@@ -704,10 +704,7 @@ vscp_link_callback_wcyd(vscp_link_ctx_t *pctx, uint64_t *pwcyd)
     return VSCP_ERROR_INVALID_POINTER;
   }
 
-  // TODO
-  *pwcyd = VSCP_SERVER_CAPABILITY_TCPIP | VSCP_SERVER_CAPABILITY_DECISION_MATRIX | VSCP_SERVER_CAPABILITY_IP4 |
-           /*VSCP_SERVER_CAPABILITY_SSL |*/
-           VSCP_SERVER_CAPABILITY_TWO_CONNECTIONS;
+  *pwcyd = VSCP_SERVER_CAPABILITY_TCPIP | VSCP_SERVER_CAPABILITY_DECISION_MATRIX | VSCP_SERVER_CAPABILITY_IP4;
 
   return VSCP_ERROR_SUCCESS;
 }
