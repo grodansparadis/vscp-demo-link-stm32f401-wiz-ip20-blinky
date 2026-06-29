@@ -216,7 +216,7 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
 
   .high_end_srv_caps   = 0, // High end server capabilities
   .high_end_ip_address = 0, // High end server ip-address
-  .high_end_srv_port   = 0, // High end server port
+  .high_end_srv_port   = 9598, // VSCP Link protocol port
 
   .alarm_status               = 0,          // [I] Alarm. Read only for clients. (init=0)
   .vscp_major_version         = 1,          // [C] VSCP protocol major version. (init=1)
@@ -845,6 +845,7 @@ void
 resetLinkContextDefaults(vscp_link_ctx_t *pctx)
 {
   pctx->bValidated = 0; // No credentials yet
+  memset(pctx->user, 0, sizeof(pctx->user));
   pctx->privLevel  = 0; // No privileges before we are logged in
   pctx->bRcvLoop   = 0; // Polling mode by default, can switch to RETR after login if desired
   memset(&pctx->filter, 0, sizeof(vscpEventFilter));       // All events is received by client
@@ -926,11 +927,6 @@ main(void)
   int rv;
   char buf[2672]; // Buffer for cmd responses and incoming data and event conversions
   uint32_t now;
-  // size_t rx_len;
-  //(void) rx_len; // only used to capture AT response lengths during init
-  //  uint32_t led_blink_until    = 0; // LED blink timestamp
-  //  uint32_t heartbeat_interval = 0; // Heartbeat clock
-  //  vscp_state_t vscp_substate  = VSCP_SUBSTATE_POLL;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1037,6 +1033,7 @@ main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  now = HAL_GetTick();
   while (1) {
     /* USER CODE END WHILE */
 
@@ -1057,8 +1054,7 @@ main(void)
         if (uart1_rx_scan("<CONNECT>") == 0) {
           uart1_rx_consume_through("<CONNECT>");
           LOGSTR("Received <CONNECT>\r\n");
-          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          //  led_blink_until = HAL_GetTick() + 50u;
+          // Mark as connected and start the link protocol
           ctx_link.sock = VSCP_STATE_CONNECTED;
           LOGSTR("State: DISCONNECTED -> CONNECTED\r\n");
           vscp_link_connect(&ctx_link);
@@ -1073,10 +1069,11 @@ main(void)
         if (uart1_rx_scan("<DISCONNECT>") == 0) {
           uart1_rx_consume_through("<DISCONNECT>");
           LOGSTR("Received <DISCONNECT>\n");
-          // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          //  led_blink_until = HAL_GetTick() + 50u;
           HAL_UART_Transmit(&huart1, (uint8_t *) "+OK - Disconnect.\r\n", 19, HAL_MAX_DELAY);
+          // Mark as disconnected
           ctx_link.sock = VSCP_STATE_DISCONNECTED;
+          // Forget connection data
+          resetLinkContextDefaults(&ctx_link);
           LOGSTR("State: CONNECTED -> DISCONNECTED\r\n");
         }
         else if (uart1_rx_getline(buf, sizeof(buf), 0) == 0) {

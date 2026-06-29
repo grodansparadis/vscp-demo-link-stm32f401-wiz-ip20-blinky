@@ -160,8 +160,7 @@ wiznet_ip20_restart(void)
 int
 wiznet_ip20_enter_command_mode(void)
 {
-  size_t rx_len;
-
+  //size_t rx_len;
   char buf[80];
 
   LOGSTR("WIZnet IP20 enter command mode:      \r\n");
@@ -256,8 +255,6 @@ wiznet_ip20_send_command(const char *cmd, char *response_buf, size_t response_bu
 int
 wiznet_ip20_init(void)
 {
-  char buf[100];
-  size_t rx_len;
 
   // Set IP address
   HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_IP, strlen(WIZ_IP20_IP), HAL_MAX_DELAY);
@@ -414,7 +411,7 @@ int
 wiznet_ip20_show_settings(void)
 {
   char buf[100];
-  size_t rx_len;
+  // size_t rx_len;
 
   LOGSTR("WIZnet IP20 current settings:\r\n");
 
@@ -502,7 +499,6 @@ wiznet_ip20_show_settings(void)
 
   return VSCP_ERROR_SUCCESS;
 }
-
 
 /*!
  * @brief  Get UART response with timeout (blocking, used during AT init only).

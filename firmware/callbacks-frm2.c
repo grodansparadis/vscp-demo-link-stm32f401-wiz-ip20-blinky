@@ -55,13 +55,12 @@
 #include "vscp-firmware-helper.h"
 #include "vscp-firmware-level2.h"
 
+#include <wiznet-ip20.h>
 #include "main.h"
 #include "blinky.h"
 #include "regdefs.h"
 #include "vscp.h"
 
-extern char g_ipaddrstr[20];
-extern char g_macaddrstr[20];
 extern register_union_t g_registers;             // Global register storage
 extern volatile uint32_t g_user_reg_millisecond; // Millisecond counter register, updated every 1 ms
 extern volatile uint8_t g_user_reg_status;       // Status register, non-persistent
@@ -95,271 +94,6 @@ vscp_frmw2_callback_get_ms(vscp_frmw2_firmware_context_t *pctx)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_get_guid
-//
-
-const uint8_t *
-vscp_frmw2_callback_get_guid(vscp_frmw2_firmware_context_t *pctx)
-{
-  return pctx->guid;
-}
-
-// ----------------------------------------------------------------------------
-
-/*!
-  Enable in vscp_projdefs.h to allow writing to write-protected locations
-  (e.g., manufacturer ID, GUID, etc.)
-*/
-#ifdef THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_write_manufacturer_id
-//
-
-int
-vscp_frmw2_callback_write_manufacturer_id(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
-{
-  if (pos < 4) {
-    // TODO // TODO eeprom_write(&eeprom, STDREG_MANUFACTURER_ID0 + pos, val);
-  }
-  else if (pos < 8) {
-    // TODO // TODO eeprom_write(&eeprom, STDREG_MANUFACTURER_SUBID0 + pos - 4, val);
-  }
-
-  // Commit changes to 'eeprom'
-  // TODO eeprom_commit(&eeprom);
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_write_guid
-//
-
-int
-vscp_frmw2_callback_write_guid(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
-{
-  // On devices that allow it, write the GUID to a write-protected area of memory
-  // (e.g., EEPROM or flash).;
-
-  return VSCP_ERROR_NOT_SUPPORTED;
-}
-
-#endif // THIS_FIRMWARE_ENABLE_WRITE_2PROTECTED_LOCATIONS
-
-// ----------------------------------------------------------------------------
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_read_user_reg
-//
-
-int
-vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
-{
-  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
-  // here.
-
-  // Check pointers (pdata allowed to be NULL)
-  if (NULL == pval) {
-    return VSCP_ERROR_INVALID_POINTER;
-  }
-
-  if (REG_DEVICE_ZONE == reg) {
-    *pval = g_registers.data.zone;
-  }
-  else if (REG_DEVICE_SUBZONE == reg) {
-    *pval = g_registers.data.subzone;
-  }
-
-  else if (REG_DEVICE_STATUS == reg) {
-    *pval = g_user_reg_status; // Non persistent
-  }
-  else if (REG_DEVICE_CONTROL == reg) {
-    *pval = g_registers.data.control;
-  }
-  else if (REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
-    *pval = g_registers.data.blink_interval >> 8 & 0xff;
-  }
-  else if (REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
-    *pval = g_registers.data.blink_interval & 0xff;
-  }
-  else if (REG_DEVICE_COUNTER_0 == reg) {
-    *pval = g_user_reg_millisecond >> 24 & 0xff;
-  }
-  else if (REG_DEVICE_COUNTER_1 == reg) {
-    *pval = g_user_reg_millisecond >> 16 & 0xff;
-  }
-  else if (REG_DEVICE_COUNTER_2 == reg) {
-    *pval = g_user_reg_millisecond >> 8 & 0xff;
-  }
-  else if (REG_DEVICE_COUNTER_3 == reg) {
-    *pval = g_user_reg_millisecond & 0xff;
-  }
-  else if (REG_DEVICE_BUTTON_BYTE0 == reg) {
-    *pval = g_registers.data.button_zero_opt_byte;
-  }
-  else if (REG_DEVICE_BUTTON_ZONE == reg) {
-    *pval = g_registers.data.button_zone;
-  }
-  else if (REG_DEVICE_BUTTON_SUBZONE == reg) {
-    *pval = g_registers.data.button_subzone;
-  }
-  else {
-    // Invalid register
-    return VSCP_ERROR_PARAMETER;
-  }
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_write_user_reg
-//
-
-int
-vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
-{
-  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
-  // here.
-
-  if (REG_DEVICE_ZONE == reg) {
-    g_registers.data.zone = val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_SUBZONE == reg) {
-    g_registers.data.subzone = val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_STATUS == reg) {
-    // Only the LD can be set/reset
-    g_user_reg_status |= val & BLINKY_STATUS_LED_ON; // Non persistent
-    // Update the LED state based on the status register
-    if (g_user_reg_status & BLINKY_STATUS_LED_ON) {
-      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET); // Turn on LED
-    }
-    else {
-      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET); // Turn off LED
-    }
-  }
-  else if (REG_DEVICE_CONTROL == reg) {
-    g_registers.data.control = val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
-    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0x00ff) | ((uint16_t) val << 8);
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
-    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0xff00) | val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_BUTTON_BYTE0 == reg) {
-    g_registers.data.button_zero_opt_byte = val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_BUTTON_ZONE == reg) {
-    g_registers.data.button_zone = val;
-    update_persistent_storage();
-  }
-  else if (REG_DEVICE_BUTTON_SUBZONE == reg) {
-    g_registers.data.button_subzone = val;
-    update_persistent_storage();
-  }
-  // Writing to the counter reset it
-  else if (REG_DEVICE_COUNTER_0 == reg || REG_DEVICE_COUNTER_1 == reg || REG_DEVICE_COUNTER_2 == reg ||
-           REG_DEVICE_COUNTER_3 == reg) {
-    g_user_reg_millisecond = 0; // Reset the millisecond counter register;
-    update_persistent_storage();
-  }
-  else {
-    // Invalid register
-    return VSCP_ERROR_PARAMETER;
-  }
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_stdreg_change
-//
-
-int
-vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t stdreg)
-{
-  if (VSCP_STD_REGISTER_USER_ID == stdreg) {
-    // Update persistent values
-    update_persistent_storage();
-  }
-
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_enter_bootloader
-//
-
-void
-vscp_frmw2_callback_enter_bootloader(vscp_frmw2_firmware_context_t *pctx)
-{
-  // No bootloader support in this demo firmware
-  return;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_report_dmatrix
-//
-
-int
-vscp_frmw2_callback_report_dmatrix(vscp_frmw2_firmware_context_t *pctx)
-{
-  // Not supported but we just return a success code to keep the client happy
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_report_mdf
-//
-
-int
-vscp_frmw2_callback_report_mdf(vscp_frmw2_firmware_context_t *pctx)
-{
-  // Not supported but we just return a success code to keep the client happy
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_report_events_of_interest
-//
-
-int
-vscp_frmw2_callback_report_events_of_interest(vscp_frmw2_firmware_context_t *pctx)
-{
-  // We want all events, so we just return a success code to keep the client happy
-  return VSCP_ERROR_SUCCESS;
-}
-
-/*
-  Resolution is 1/84 MHz ≈ 11.9 ns, not 1 ns
-  DWT->CYCCNT wraps every ~51 s (32-bit at 84 MHz)
-  For absolute timestamps, combine with usec_now(): take a µs base + DWT delta for the
-  sub-µs part
-
-typedef struct {
-  uint64_t usec;
-  uint32_t sub_ns;
-} hires_ts_t;
-
-static inline hires_ts_t
-hires_now(void)
-{
-  hires_ts_t t;
-  t.usec   = usec_now();
-  t.sub_ns = (DWT->CYCCNT % (SystemCoreClock / 1000000UL)) * (1000000000UL / SystemCoreClock);
-  return t;
-}
-*/
-
-///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_get_timestamp
 //
 
@@ -371,16 +105,6 @@ vscp_frmw2_callback_get_timestamp(vscp_frmw2_firmware_context_t *pctx)
   // return t.usec * 1000 + t.sub_ns / 1000;
   return nsec_now();
 }
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_get_time
-//
-
-// int
-// vscp_frmw2_callback_get_time(vscp_frmw2_firmware_context_t *pctx, const vscp_event_ex_t *pex)
-// {
-//   return VSCP_ERROR_SUCCESS;
-// }
 
 ///////////////////////////////////////////////////////////////////////////////
 // vscp_frmw2_callback_send_event
@@ -437,31 +161,142 @@ vscp_frmw2_callback_send_event(vscp_frmw2_firmware_context_t *pctx, vscp_event_t
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_restore_defaults
+// vscp_frmw2_callback_dm_action
 //
 
+/*!
+  Actions are defined in the VSCP DM specification. The action parameter is a uint8_t
+  that indicates which action to perform, and pparam is a pointer to any additional
+  parameters needed for the action. The callback should return VSCP_ERROR_SUCCESS if
+  the action was performed successfully, or an appropriate error code if not.
+
+  Actions
+  -------
+  0 - NOOP -  No operation, do nothing
+  1 - SET -  Set LED state to ON or OFF based on pparam[0] (0=OFF, 1=ON)
+  2 - ON -  Turn LED ON
+  3 - OFF -  Turn LED OFF
+  4 - TOGGLE -  Toggle LED state
+  5 - START BLINK -  Start blinking LED with interval specified in pparam[0] (in ms)
+  6 - STOP BLINK -  Stop blinking LED and restore to previous state
+  7 - CLEAR -  Clear the millisecond counter
+
+  # defines are in blinky.h
+*/
+
 int
-vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
+vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx,
+                              const vscp_event_t *pev,
+                              uint8_t action,
+                              const uint8_t *pparam)
 {
-  resetRegisters();
+  switch (action) {
+    case BLINKY_ACTION_NOOP:
+      // Do nothing
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_STATE:
+      if (pparam[0] == BLINKY_ARG_CTRL_LED_OFF) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+        g_user_reg_status &= ~BLINKY_STATUS_LED_ON;
+      }
+      else if (pparam[0] == BLINKY_ARG_CTRL_LED_ON) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+        g_user_reg_status |= BLINKY_STATUS_LED_ON;
+      }
+      else if (pparam[0] == BLINKY_ARG_CTRL_LED_TOGGLE) {
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        g_user_reg_status ^= BLINKY_STATUS_LED_ON;
+      }
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_ON:
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      g_user_reg_status |= BLINKY_STATUS_LED_ON;
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_OFF:
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+      g_user_reg_status &= ~BLINKY_STATUS_LED_ON;
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_TOGGLE:
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      g_user_reg_status ^= BLINKY_STATUS_LED_ON;
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_START_BLINK:
+      // Start blinking with interval specified in pparam[0] and pparam[1]
+      g_registers.data.blink_interval = ((uint16_t) pparam[0] << 8) | pparam[1];
+      g_registers.data.control |= BLINKY_CTRL_ENABLE_LED;
+      update_persistent_storage();
+      break;
+
+    case BLINKY_ACTION_CTRL_LED_STOP_BLINK:
+      // Stop blinking
+      g_registers.data.control &= ~BLINKY_CTRL_ENABLE_LED;
+      update_persistent_storage();
+      break;
+
+    case BLINKY_ACTION_CLR_COUNTER:
+      g_user_reg_millisecond = 0;
+      break;
+
+    default:
+      return VSCP_ERROR_PARAMETER;
+  }
+
   return VSCP_ERROR_SUCCESS;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_write_user_id
+// vscp_frmw2_callback_segment_ctrl_heartbeat
 //
 
 int
-vscp_frmw2_callback_write_user_id(vscp_frmw2_firmware_context_t *pctx, uint8_t pos, uint8_t val)
+vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, uint16_t segcrc, uint32_t time)
 {
-  g_registers.data.userdata[pos] = val;
+  // We are not segment controller, so we just return success to keep the client happy
+  return VSCP_ERROR_SUCCESS;
+}
 
-  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
-                                    g_registers.word_array,
-                                    sizeof(register_union_t) / sizeof(uint16_t))) {
-    LOGSTR("Failed to write flash storage\r\n");
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_report_events_of_interest
+//
+
+int
+vscp_frmw2_callback_report_events_of_interest(vscp_frmw2_firmware_context_t *pctx)
+{
+  // We want all events, so we just return a success code to keep the client happy
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_set_event_time
+//
+
+/*
+  New version of the the firmware just use a 64 bit timestamp and not the time field in the event.
+
+  If the system has a real time clock, the time field should be converted to a
+  64 bit timestamp and stored in the event. The time field is then set to zero.
+  If the timestamp is set to zero it will be set to current in the first communication
+  interface it traverses.
+  The vscp_fwhlp_to_unix_ns() function can be used to convert the time field to a 64 bit
+  timestamp.
+*/
+
+int
+vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *const pev)
+{
+  if (NULL == pev) {
+    return VSCP_ERROR_INVALID_POINTER;
   }
-
+  // Always set 64-bit nanosecond timestamp
+  pev->head |= VSCP_HEADER16_FRAME_VERSION_UNIX_NS;
+  pev->year         = 0xffff;
+  pev->month        = 0xff;
+  pev->timestamp_ns = vscp_frmw2_callback_get_timestamp(pctx);
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -520,7 +355,7 @@ vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip
     return VSCP_ERROR_INVALID_POINTER;
   }
   else {
-    if (0 != ip_str_to_bytes(ip, g_ipaddrstr)) {
+    if (0 != ip_str_to_bytes(ip, WIZ_IP20_IP + 2)) { // Skip the "LI" prefix
       return VSCP_ERROR_PARAMETER;
     }
   }
@@ -529,32 +364,180 @@ vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_set_event_time
+// vscp_frmw2_callback_read_user_reg
 //
 
-/*
-  New version of the the firmware just use a 64 bit timestamp and not the time field in the event.
-
-  If the system has a real time clock, the time field should be converted to a 
-  64 bit timestamp and stored in the event. The time field is then set to zero.
-  If the timestamp is set to zero it will be set to current in the first communication
-  interface it traverses.
-  The vscp_fwhlp_to_unix_ns() function can be used to convert the time field to a 64 bit 
-  timestamp.
-*/
-
 int
-vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_event_t *const pev)
+vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
 {
-  if (NULL == pev) {
+  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
+  // here.
+
+  // Check pointers (pdata allowed to be NULL)
+  if (NULL == pval) {
     return VSCP_ERROR_INVALID_POINTER;
   }
-  // Always set 64-bit nanosecond timestamp
-  pev->head |= VSCP_HEADER16_FRAME_VERSION_UNIX_NS;
-  pev->year         = 0xffff;
-  pev->month        = 0xff;
-  pev->timestamp_ns = vscp_frmw2_callback_get_timestamp(pctx); 
+
+  if (BLINKY_REG_DEVICE_ZONE == reg) {
+    *pval = g_registers.data.zone;
+  }
+  else if (BLINKY_REG_DEVICE_SUBZONE == reg) {
+    *pval = g_registers.data.subzone;
+  }
+
+  else if (BLINKY_REG_DEVICE_STATUS == reg) {
+    *pval = g_user_reg_status; // Non persistent
+  }
+  else if (BLINKY_REG_DEVICE_CONTROL == reg) {
+    *pval = g_registers.data.control;
+  }
+  else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
+    *pval = g_registers.data.blink_interval >> 8 & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
+    *pval = g_registers.data.blink_interval & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_COUNTER_0 == reg) {
+    *pval = g_user_reg_millisecond >> 24 & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_COUNTER_1 == reg) {
+    *pval = g_user_reg_millisecond >> 16 & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_COUNTER_2 == reg) {
+    *pval = g_user_reg_millisecond >> 8 & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_COUNTER_3 == reg) {
+    *pval = g_user_reg_millisecond & 0xff;
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_BYTE0 == reg) {
+    *pval = g_registers.data.button_zero_opt_byte;
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_ZONE == reg) {
+    *pval = g_registers.data.button_zone;
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_SUBZONE == reg) {
+    *pval = g_registers.data.button_subzone;
+  }
+  else {
+    // Invalid register
+    return VSCP_ERROR_PARAMETER;
+  }
+
   return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_write_user_reg
+//
+
+int
+vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
+{
+  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
+  // here.
+
+  if (BLINKY_REG_DEVICE_ZONE == reg) {
+    g_registers.data.zone = val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_SUBZONE == reg) {
+    g_registers.data.subzone = val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_STATUS == reg) {
+    // Only the LD can be set/reset
+    g_user_reg_status |= val & BLINKY_STATUS_LED_ON; // Non persistent
+    // Update the LED state based on the status register
+    if (g_user_reg_status & BLINKY_STATUS_LED_ON) {
+      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET); // Turn on LED
+    }
+    else {
+      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET); // Turn off LED
+    }
+  }
+  else if (BLINKY_REG_DEVICE_CONTROL == reg) {
+    g_registers.data.control = val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
+    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0x00ff) | ((uint16_t) val << 8);
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
+    g_registers.data.blink_interval = (g_registers.data.blink_interval & 0xff00) | val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_BYTE0 == reg) {
+    g_registers.data.button_zero_opt_byte = val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_ZONE == reg) {
+    g_registers.data.button_zone = val;
+    update_persistent_storage();
+  }
+  else if (BLINKY_REG_DEVICE_BUTTON_SUBZONE == reg) {
+    g_registers.data.button_subzone = val;
+    update_persistent_storage();
+  }
+  // Writing to the counter reset it
+  else if (BLINKY_REG_DEVICE_COUNTER_0 == reg || BLINKY_REG_DEVICE_COUNTER_1 == reg || BLINKY_REG_DEVICE_COUNTER_2 == reg ||
+           BLINKY_REG_DEVICE_COUNTER_3 == reg) {
+    g_user_reg_millisecond = 0; // Reset the millisecond counter register;
+    update_persistent_storage();
+  }
+  else {
+    // Invalid register
+    return VSCP_ERROR_PARAMETER;
+  }
+
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_stdreg_change
+//
+
+int
+vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t stdreg)
+{
+  if (VSCP_STD_REGISTER_USER_ID == stdreg) {
+    // Update persistent values
+    update_persistent_storage();
+  }
+
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_restore_defaults
+//
+
+int
+vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
+{
+  resetRegisters();
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_get_guid
+//
+
+const uint8_t *
+vscp_frmw2_callback_get_guid(vscp_frmw2_firmware_context_t *pctx)
+{
+  return pctx->guid;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// vscp_frmw2_callback_enter_bootloader
+//
+
+void
+vscp_frmw2_callback_enter_bootloader(vscp_frmw2_firmware_context_t *pctx)
+{
+  // No bootloader support in this demo firmware
+  return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -564,7 +547,7 @@ vscp_frmw2_callback_set_event_time(vscp_frmw2_firmware_context_t *pctx, vscp_eve
 int
 vscp_frmw2_callback_reset(vscp_frmw2_firmware_context_t *pctx)
 {
-  // Reset the device. This is a placeholder for the actual reset logic, 
+  // Reset the device. This is a placeholder for the actual reset logic,
   // which may involve setting a flag or calling a system reset function.
 
   NVIC_SystemReset();
@@ -581,46 +564,3 @@ vscp_frmw2_callback_feed_watchdog(vscp_frmw2_firmware_context_t *pctx)
   watchdog_feed();
   return VSCP_ERROR_SUCCESS;
 }
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_dm_action
-//
-
-int
-vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx,
-                              const vscp_event_t *pev,
-                              uint8_t action,
-                              const uint8_t *pparam)
-{
-  return VSCP_ERROR_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_segment_ctrl_heartbeat
-//
-
-int
-vscp_frmw2_callback_segment_ctrl_heartbeat(vscp_frmw2_firmware_context_t *pctx, uint16_t segcrc, uint32_t time)
-{
-  // We are not segment controller, so we just return success to keep the client happy
-  return VSCP_ERROR_SUCCESS;
-}
-
-// ----------------------------------------------------------------------------
-
-#ifdef THIS_FIRMWARE_VSCP_DISCOVER_SERVER
-
-///////////////////////////////////////////////////////////////////////////////
-// vscp_frmw2_callback_high_end_server_response
-//
-
-int
-vscp_frmw2_callback_high_end_server_response(vscp_frmw2_firmware_context_t *pctx)
-{
-  // We are not a high end server, so we just return success to keep the client happy
-  return VSCP_ERROR_SUCCESS;
-}
-
-#endif // THIS_FIRMWARE_VSCP_DISCOVER_SERVER
-
-// ----------------------------------------------------------------------------

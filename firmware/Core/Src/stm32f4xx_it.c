@@ -55,6 +55,7 @@
 /* USER CODE BEGIN 0 */
 extern volatile uint32_t msTicks; /* Declare the msTicks variable as extern to be used in this file */
 extern volatile uint32_t g_user_reg_millisecond; /* Millisecond counter register, updated every 1 ms */
+extern register_union_t g_registers; /* Global register storage */
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -239,7 +240,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN TIM2_PeriodElapsedCallback 0 */
   if (htim->Instance == TIM2) {
     msTicks++;
-    g_user_reg_millisecond++; /* Update the millisecond counter register */
+    if (g_registers.data.control & BLINKY_CTRL_ENABLE_MS_COUNTER) {
+      g_user_reg_millisecond++; /* Update the millisecond counter register */
+    }
   }
   else if (htim->Instance == TIM3) {
     tim3_ovf++;

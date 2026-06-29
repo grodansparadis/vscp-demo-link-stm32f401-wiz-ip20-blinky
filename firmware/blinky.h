@@ -38,8 +38,6 @@
 #include <vscp-link-protocol.h>
 #include <vscp-firmware-level2.h>
 
-
-
 typedef struct {
 
   // Module
@@ -66,32 +64,67 @@ typedef struct {
 // line interface if the standard help text takes to much resources.
 #define BLINKY_HELP "See https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink for help\r\n"
 
+// User registers ordinals
+#define BLINKY_REG_DEVICE_ZONE               0 // Zone for the device [P]
+#define BLINKY_REG_DEVICE_SUBZONE            1 // Subzone for the device [P]
+#define BLINKY_REG_DEVICE_STATUS             2 // Status of the device [P]
+#define BLINKY_REG_DEVICE_CONTROL            3 // Control register for the device [P]
+#define BLINKY_REG_DEVICE_BLINK_INTERVAL_MSB 4 // Most significant byte of the blink interval [P]
+#define BLINKY_REG_DEVICE_BLINK_INTERVAL_LSB 5 // Least significant byte of the blink interval [P]
+#define BLINKY_REG_DEVICE_COUNTER_0          6 // Counter 0 
+#define BLINKY_REG_DEVICE_COUNTER_1          7 // Counter 1 
+#define BLINKY_REG_DEVICE_COUNTER_2          8 // Counter 2 
+#define BLINKY_REG_DEVICE_COUNTER_3          9 // Counter 3 
+#define BLINKY_REG_DEVICE_BUTTON_BYTE0       10 // Button byte 0 [P]
+#define BLINKY_REG_DEVICE_BUTTON_ZONE        11 // Button zone [P]
+#define BLINKY_REG_DEVICE_BUTTON_SUBZONE     12 // Button subzone [P]
+
 // Status register bits (register 0:6)
 #define BLINKY_STATUS_LED_ON 0x02u // Bit 1 set when LED is on, clear when LED is off
 #define BLINKY_STATUS_BTN_ON 0x01u // Bit 0 set when button is pressed, clear when button is released
 
 // Control register bits (register 0:7)
-#define BLINKY_CTRL_ENABLE_LED 0x80u // Bit 7 set to enable LED blinking, clear to disable
-#define BLINKY_CTRL_ENABLE_BTN 0x40u // Bit 6 set to enable button, clear to disable
-#define BLINKY_CTRL_ENABLE_BTN_TURNON 0x08u  // Bit 3 set to enable button TURN-ON event, clear to disable
-#define BLINKY_CTRL_ENABLE_BTN_START 0x04u // Bit 2 set to enable button START event, clear to disable
-#define BLINKY_CTRL_ENABLE_BTN_STOP 0x02u    // Bit 1 set to enable button STOP event, clear to disable
+#define BLINKY_CTRL_ENABLE_LED        0x80u // Bit 7 set to enable LED blinking, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN        0x40u // Bit 6 set to enable button, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_TURNON 0x08u // Bit 3 set to enable button TURN-ON event, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_START  0x04u // Bit 2 set to enable button START event, clear to disable
+#define BLINKY_CTRL_ENABLE_BTN_STOP   0x02u // Bit 1 set to enable button STOP event, clear to disable
+#define BLINKY_CTRL_ENABLE_MS_COUNTER 0x01u // Bit 0 set to enable millisecond counter, clear to disable
 
-#define BLINKY_DEFAULT_REG_ZONE 0u        // Default zone for the device
-#define BLINKY_DEFAULT_REG_SUBZONE 0u     // Default subzone for the device
-#define BLINKY_DEFAULT_REG_BUTTON_ZONE 0u // Default button zone for the device
-#define BLINKY_DEFAULT_REG_BUTTON_SUBZONE 0u // Default button subzone for the device
-#define BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE 0u // Default button option byte for the device
-#define BLINKY_DEFAULT_REG_BLINK_INTERVAL 1000u // Default blink interval in milliseconds
-#define BLINKY_DEFAULT_REG_CONTROL (BLINKY_CTRL_ENABLE_LED | BLINKY_CTRL_ENABLE_BTN | BLINKY_CTRL_ENABLE_BTN_TURNON | BLINKY_CTRL_ENABLE_BTN_START | BLINKY_CTRL_ENABLE_BTN_STOP)
+#define BLINKY_DEFAULT_REG_ZONE            0u    // Default zone for the device
+#define BLINKY_DEFAULT_REG_SUBZONE         0u    // Default subzone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_ZONE     0u    // Default button zone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_SUBZONE  0u    // Default button subzone for the device
+#define BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE 0u    // Default button option byte for the device
+#define BLINKY_DEFAULT_REG_BLINK_INTERVAL  1000u // Default blink interval in milliseconds
+#define BLINKY_DEFAULT_REG_CONTROL                                                                                     \
+  (BLINKY_CTRL_ENABLE_LED | BLINKY_CTRL_ENABLE_BTN | BLINKY_CTRL_ENABLE_BTN_TURNON | BLINKY_CTRL_ENABLE_BTN_START |    \
+   BLINKY_CTRL_ENABLE_BTN_STOP | BLINKY_CTRL_ENABLE_MS_COUNTER)
 #define BLINKY_DEFAULT_REG_NICKNAME 0x10u // Default nickname for the device
+
+// Actions
+
+#define BLINKY_ACTION_NOOP                 0 // No operation
+#define BLINKY_ACTION_CTRL_LED_STATE       1 // Control LED state (arg=0=OFF, arg=1=ON)
+#define BLINKY_ACTION_CTRL_LED_ON          2 // Turn LED on
+#define BLINKY_ACTION_CTRL_LED_OFF         3 // Turn LED off
+#define BLINKY_ACTION_CTRL_LED_TOGGLE      4 // Toggle LED state
+#define BLINKY_ACTION_CTRL_LED_START_BLINK 5 // Start LED blinking
+#define BLINKY_ACTION_CTRL_LED_STOP_BLINK  6 // Stop LED blinking
+#define BLINKY_ACTION_CLR_COUNTER          7 // Clear millisecond counter
+
+// Action parameters
+
+// Control LED state (arg=0=OFF, arg=1=ON)
+#define BLINKY_ARG_CTRL_LED_OFF    0
+#define BLINKY_ARG_CTRL_LED_ON     1
+#define BLINKY_ARG_CTRL_LED_TOGGLE 2
 
 /*
   ----------------------------------------------------------------------------
                                    Blinky
   ----------------------------------------------------------------------------
 */
-
 
 /*!
   Select **one **of the following modes for the blinky demo. This will determine how the
@@ -155,7 +188,6 @@ typedef struct {
 
 // System defaults
 
-
 #define BLINKY_DEFAULT_ENCRYPTION_LEVEL VSCP_ENCRYPTION_NONE // 0 = none, 1 = AES128, 2 = AES192, 3 = AES256
 #define BLINKY_DEFAULT_MODULE_ZONE      1                    // VSCP zone for module
 #define BLINKY_DEFAULT_MODULE_SUBZONE   2                    // VSCP subzone for module
@@ -170,7 +202,5 @@ typedef struct {
  * of connections to the server
  */
 #define BLINKY_MAX_TCP_CONNECTIONS 1
-
-
 
 #endif
