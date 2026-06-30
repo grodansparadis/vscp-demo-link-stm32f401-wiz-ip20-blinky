@@ -20,6 +20,7 @@
       "svdFile": "${workspaceFolder}/STM32F4.svd",
       "overrideResetCommands": ["monitor reset halt"],
       "postLaunchCommands": ["tbreak main", "continue"],
+      "hardwareBreakpoints": { "require": true, "limit": 6 },
       "showDevDebugOutput": "none",
     },
     {
@@ -32,7 +33,7 @@
       "executable": "${workspaceFolder}/firmware/build/firmware.elf",
       "svdFile": "${workspaceFolder}/STM32F4.svd",
       "runToEntryPoint": "main",
-      "runToMain": true,
+      "hardwareBreakpoints": { "require": true, "limit": 6 },
       "preLaunchCommands": ["monitor reset halt"],
       "showDevDebugOutput": "none",
       "swoConfig": {

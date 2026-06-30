@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<txrows>
+    <row enable="false" name="Read register" count="1" period="0" event="384,0,9,21840,2026-06-30T07:19:36Z,1299395584,10:7F:00:00:A4:01:00:00:72:00:00:00:F3:01:00:00,0x10,0x00"/>
+    <row enable="false" name="Read blink period MSB" count="1" period="0" event="128,0,9,21840,2026-06-30T07:19:36Z,441462584,10:7F:00:00:A4:01:00:00:72:00:00:00:F3:01:00:00,0x10,0x04"/>
+    <row enable="false" name="Read blink period LSB " count="1" period="0" event="128,0,9,21840,2026-06-30T07:19:36Z,3241165312,10:7F:00:00:A4:01:00:00:72:00:00:00:F3:01:00:00,0x10,0x05"/>
+    <row enable="false" name="Write blink period MSB (500ms)" count="1" period="0" event="128,0,11,22012,,0,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00,0x10,0x04,0x01"/>
+    <row enable="false" name="Write blink period LSB (500ms)" count="1" period="0" event="128,0,11,22012,,0,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00,0x10,0x05,0xF4"/>
+    <row enable="false" name="Read status register" count="1" period="0" event="128,0,9,22012,0000-00-207T00:00:128Z,22009,00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00,0x10,0x02"/>
+</txrows>

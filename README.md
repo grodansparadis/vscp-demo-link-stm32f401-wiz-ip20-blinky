@@ -182,7 +182,7 @@ You can now issue commands to the VSCP link server. But to get access to all com
 
 ```bash
 user vscp
-password secret
+pass secret
 ```
 
 You can now type **help** to get a list of all available commands. The VSCP link protocol is described in detail in the [VSCP link protocol specification](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink).
@@ -244,7 +244,7 @@ If you want to read the blink interval registers you can use the [read register 
 
 ```bash
 send 0,0,9,0,,0,-,16,4
-send 0,0,9,0,,0,-,16,5
+
 ```
 
 Type is now 9 instead of 11 and data byte 2, the data to write is not needed. Use 
@@ -266,6 +266,8 @@ twice to poll data from the node you will get a reply from the node with the val
 
 Register 4 has content 1 and register 5 content 244. That is 01f4h = 500 decimal, the blink interval is 500ms.
 
+Note that read responses is also sent when you write to a register. So if you send a write register event you will get a read response back from the node with the new value of the register.
+
 You may also get two events when you read events from the node. 
 
 [Class=1026, Type= 2](https://grodansparadis.github.io/vscp-doc-spec/#/./class2.information?id=type2) is a [heartbeat event](https://grodansparadis.github.io/vscp-doc-spec/#/./class1.protocol?id=type2) that is sent every 60 seconds by the node. It is used to indicate that the node is alive and functioning. 
@@ -283,6 +285,42 @@ Quit the telnet session with
 quit
 ```
 
+### The MDF
+
+The MDF file is important for all VSCP nodes. It is a XML or JSON file that describes the capabilities and features of the node. It is used by clients to determine what the node can do and how it can be used. The MDF file for this demo node is located on a public server [htts://eurosource.se/blinky0.json](https://eurosource.se/blinky0.json) directory. 
+
+
 ### VSCP Works
 
+![](./images/vwcp-works-read-reg.png)
 
+VSCP Works is a cross-platform application for Windows, Linux and MacOS. It is a great tool for testing and debugging VSCP nodes. It can be used to send and receive VSCP events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications. You can download it from the [VSCP Works GitHub page](https://github.com/grodansparadis/vscp-works-qt).
+
+VSCP Works make it much easier to send and read events from the VSCP link server. It has a graphical user interface that makes it easy to use. You can use it to send and receive events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications.
+
+![](./images/vscp-works-connection.png)
+
+To set up a connection to the VSCP link server, you need to create a new connection. Right click on the "tcp/ip Connections" tab and select "Add new tcp/ip connection...". In the connection settings you need to set the IP address of the WIZ-IP20 module and the port number (9598). You also need to set the username and password for the connection. The default username is "vscp" and the default password is "secret".  You can test that the connection works by clicking on the "Test connection" button. If the connection is successful, you will see a message indicating that the connection was successful. You can now use VSCP Works to send and receive events from the VSCP link server. Press OK to save.
+
+Now double click on the connection ands a session window will open. You can now use the session window to send and receive events from the VSCP link server. You can also use the session window to read and write registers. The session window has a lot of features that make it easy to use. You can use it to send and receive events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications.
+
+For a device like this demo node the remote interface is polled for events. This makes it slower than it normally is. This is beacise the WIZnet IP20 just allow one TCP connection at a time and VSCP Works prefere to use two connections, one for sending and one for receiving events. But this is not possible with the WIZnet IP20 module. So the remote interface is polled for events instead. This is not a problem for this demo node (except that things get slower), but it can be a problem for more complex nodes that generate a lot of events.
+
+![](./images/vcp-works-read-reg.png)
+
+If you connected you will now see the heartbeat events from the node. In the lower part you can define events you want to send to the node. Just enter data and click the send button or double click the line to transfer them to the node. You get response data in the session window.
+
+![](./images/vscp-works-tx-event.png)
+
+in the repository folder [vscp-works](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/vscp-works) you can find a VSCP Works [file with tx items](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/vscp-works/txset-read-write.xml) for reading and writing registers on the demo node that you can load using the load button in the transmission area.
+
+## Programmatic access to the VSCP link server
+
+You can use node.js, Python, C/C++ or any other programming language to access the VSCP link server. The VSCP link protocol is a simple text-based protocol that can be used to send and receive events, read and write registers, and much more. You can use it to develop your own applications that communicate with the VSCP link server. The tools are available.
+
+  - c/c++: [vscp-helper-lib](https://github.com/grodansparadis/vscp-helper-lib)
+  - node.js: [node-vscp](https://github.com/grodansparadis/node-vscp), [node-vscp-tcp](https://github.com/grodansparadis/node-vscp-tcp), [node-vscp-class](https://github.com/grodansparadis/node-vscp-class), [node-vscp-type](https://github.com/grodansparadis/node-vscp-type)
+  - Python: [pyvscp](https://github.com/grodansparadis/pyvscp), [pyvscp-classes](https://github.com/grodansparadis/pyvscp-classes), [pyvscp-utils](https://github.com/grodansparadis/pyvscp-utils)
+  - node-red: [node-red-contrib-vscp](https://github.com/grodansparadis/node-red-contrib-vscp-tcp), [node-red-contrib-vscp](https://github.com/grodansparadis/node-red-contrib-vscp-tcp)
+
+  Check the [VSCP site](https://www.vscp.org) for a complete list of available tools and libraries for different programming languages.

@@ -1031,6 +1031,28 @@ main(void)
 
   flash_storage_read(FLASH_STORAGE_DATA_OFFSET, g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t));
 
+  if (1) {
+    LOGSTR("Current register values:\r\n");
+    LOGSTR("Control: 0x%02X\r\n", g_registers.data.control);
+    LOGSTR("Button Zone: %d\r\n", g_registers.data.button_zone);
+    LOGSTR("Button Subzone: %d\r\n", g_registers.data.button_subzone);
+    LOGSTR("Button Opt Byte: 0x%02X\r\n", g_registers.data.button_zero_opt_byte);
+    LOGSTR("Zone: %d\r\n", g_registers.data.zone);
+    LOGSTR("Subzone: %d\r\n", g_registers.data.subzone);
+    LOGSTR("Blink Interval: %d ms\r\n", g_registers.data.blink_interval);
+    LOGSTR("Manufacturer ID: %02X %02X %02X %02X\r\n", g_registers.data.manufacturer_id[0],
+           g_registers.data.manufacturer_id[1],
+           g_registers.data.manufacturer_id[2],
+           g_registers.data.manufacturer_id[3]);
+    LOGSTR("Nickname: %d\r\n", g_registers.data.nickname);
+    LOGSTR("Userdata: %02X %02X %02X %02X %02X\r\n", g_registers.data.userdata[0],
+           g_registers.data.userdata[1],
+           g_registers.data.userdata[2],
+           g_registers.data.userdata[3],
+           g_registers.data.userdata[4]);
+  }
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
