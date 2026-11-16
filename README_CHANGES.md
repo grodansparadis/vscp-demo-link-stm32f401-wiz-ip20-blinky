@@ -7,6 +7,8 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- README and docs corrected for the STM32F401: title, clone URL, OpenOCD target (stm32f4x), broken image and repository links, MDF location
+- Removed files left over from the STM32F103 project that the build does not use (F1 HAL driver and CMSIS device files, backup files, EWARM project, F103 linker script, startup file and CubeMX files)
 - Fixed typo in readme (2e860a6)
 - Added infor about VSCP works and other tools (7ca92cf)
 - Fixed problems with user quit (a47be33)

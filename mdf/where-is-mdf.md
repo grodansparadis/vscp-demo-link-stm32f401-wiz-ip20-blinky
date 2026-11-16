@@ -5,11 +5,11 @@ The MDF is a crucial component of the project, providing essential information a
 As blinky is a demo setup that is used in many programs, the MDF is located in the demo folder of the VSCP firmware repository. This allows for easy access and reference for developers working on the blinky demo or any related projects. You can find it at the following path:
 
 ```
-https://github.com/grodansparadis/vscp-firmware/demos/blinky/mdf/
+https://github.com/grodansparadis/vscp-firmware/tree/master/demos/blinky/mdf
 
 and
 
-https://eurosource.se/blinky0.mdf
+https://eurosource.se/blinky0.json
 ```
 
 

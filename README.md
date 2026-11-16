@@ -1,11 +1,14 @@
-# vscp-demo-link-stm32f103-wiz-ip20-blinky
+# vscp-demo-link-stm32f401-wiz-ip20-blinky
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Last commit](https://img.shields.io/github/last-commit/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky)
 
 ![](images/test-setup1.jpg)
 
 
 [VSCP blinky demo](https://github.com/grodansparadis/vscp-firmware/wiki) for STM32F401 with [WIZnet IP20 module](https://wiznet.io/products/serial-to-ethernet-modules/wiz-ip20). The firmware is built with CMake and STM32CubeMX-generated code, using the GNU Arm Embedded Toolchain. It demonstrates basic GPIO control for blinking an LED and configures and sets up network connectivity. 
 
-The Blinky demo general functionality is described [here](https://github.com/grodansparadis/vscp/wiki/Blinky).The VSCP blinky demo is the simplest possible VSCP application, toggling a LED on and off at a configurable interval and generate events from a single button. It is general demo available on different platforms and transports. This project serves as a starting point to learn more about VSCP and for developing more complex VSCP applications on STM32 microcontrollers with some sort of connectivity. The VSCP blinky demo is designed to be simple and easy to understand, making it ideal for learning how to use the VSCP protocol and develop applications for embedded systems. It is implemented on different platforms, including STM32 microcontrollers, and can be used as a reference for building your own VSCP applications.
+The Blinky demo general functionality is described [here](https://github.com/grodansparadis/vscp/wiki/Blinky).The VSCP blinky demo is the simplest possible VSCP firmware, toggling a LED on and off at a configurable interval and generate events from a single button. It is general demo available on different platforms and transports. This project serves as a starting point to learn more about VSCP and for developing more complex VSCP applications on microcontrollers with some sort of connectivity. The VSCP blinky demo is designed to be simple and easy to understand, making it ideal for learning how to use the VSCP protocol and develop applications for embedded systems. It is implemented on different platforms, including STM32 microcontrollers, and can be used as a reference for building your own VSCP applications.
 
 ## Hardware
 - [ST-Link V2 programmer/debugger](https://www.st.com/en/development-tools/st-link-v2.html)
@@ -16,7 +19,7 @@ The Blinky demo general functionality is described [here](https://github.com/gro
 
 ### Resources
 
-* TIM2 is used as a millisecond timebase.
+* TIM2 is used as a millisecond time base.
 * TIM3 is used as a 1 µs free-running counter, extended to 32 bits via software overflow.
 
 ## Persistent Flash Storage
@@ -57,10 +60,10 @@ flash_storage_read(0, buf, 2);
 
 
 - Connect an LED with a suitable resistor to PA5 for blinking (or use the onboard LED if available)
-- Adda button to PC13 for user input (or use the onboard button if available)
+- Add a button to PC13 for user input (or use the onboard button if available)
 - Extra debug output is available on PA2/PA3 (USART2 TX/RX) for printf debugging. Connect a serial TTL to USB adapter to PA2 and GND to view debug output on your computer. On the nucleo card the built in ST_Link debugger provides a virtual COM port for this purpose. The default baud rate is 115200, 8N1.
 
-If you need to connect an externa ST-Link programmer/debugger, connect SWDIO to PA13, SWCLK to PA14, GND to GND and 3.3V to 3.3V. The WIZ-IP20 module is connected to the STM32F401 via UART1 (PA9/PA10) and to the network via Ethernet.
+If you need to connect an external ST-Link programmer/debugger, connect SWDIO to PA13, SWCLK to PA14, GND to GND and 3.3V to 3.3V. The WIZ-IP20 module is connected to the STM32F401 via UART1 (PA9/PA10) and to the network via Ethernet.
 
 
 ## Build the project
@@ -68,7 +71,7 @@ If you need to connect an externa ST-Link programmer/debugger, connect SWDIO to 
 Check out the repository
 
 ```bash
-  git clone --recurse-submodules https://github.com/grodansparadis/vscp-demo-link-stm32f103-wiz-ip20-blinky.git
+  git clone --recurse-submodules https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky.git
 ```
 
 Go to the firmware directory
@@ -88,7 +91,7 @@ This produces build/firmware.elf and .hex/.bin.
 
 ```bash
 # OpenOCD
-openocd -f interface/stlink.cfg -f target/st m32f1x.cfg \
+openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
   -c "program build/firmware.elf verify reset exit"
 
 # ST-Link CLI (install with 'sudo apt install stlink-tools')
@@ -217,7 +220,7 @@ The third number is the **VSCP type**, in this case the [write register event](h
 
 The forth number is the **obid**, object id, which is used to identify the event. This is always 0 for this demo. It is used by higher level software to identify events.
 
-Then we have (number four and five) the **timefield** and the **timestamp**. The timefield is always empty for modern VSCP nodes (two commas). It was previously used to supply a ISO formatted date and time in older VSCP nodes (YYYY:MM:DDTHH:MM:SS). Now the next number after the two commas, is the 64-bit timestamp, holds this information with nanosecond resolution. We can set it to 0 for this demo.
+Then we have (number four and five) the **timefield** and the **timestamp**. The time field is always empty for modern VSCP nodes (two commas). It was previously used to supply a ISO formatted date and time in older VSCP nodes (YYYY:MM:DDTHH:MM:SS). Now the next number after the two commas, is the 64-bit timestamp, holds this information with nanosecond resolution. We can set it to 0 for this demo.
 
 The dash is a placeholder for the [GUID](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_globally_unique_identifiers?id=globally-unique-identifiers) (globally unique identifier)- We can set any GUID here in the this demo, but in a real world scenario you will see something like **00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:01** here. 
 
@@ -225,12 +228,12 @@ After the GUID the data for the event is listed as a comma separated list of num
 
 ## Read GUID
 
-If you cant to check the GUID of the demo node you can use the [read GUID command](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink?id=tcpip-read-guid) to read the GUID. The following example will read the GUID of the demo node.
+If you want to check the GUID of the demo node you can use the [read GUID command](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink?id=tcpip-read-guid) to read the GUID. The following example will read the GUID of the demo node.
 
 ```bash
 getguid
 ```
-For this demo the GUID is constructed from the 96-bit unique id stored in the STM32F401 microcontroller. It will look something like this: 
+For this demo the GUID is constructed from the 96-bit unique id stored in the STM32F401 micro controller. It will look something like this: 
 
 ```bash
 FD:00:02:00:5D:00:5E:33:33:51:0C:34:35:34:37:10
@@ -244,11 +247,9 @@ If you want to read the blink interval registers you can use the [read register 
 
 ```bash
 send 0,0,9,0,,0,-,16,4
-
 ```
 
 Type is now 9 instead of 11 and data byte 2, the data to write is not needed. Use 
-
 
 ```bash
 retr
@@ -287,12 +288,12 @@ quit
 
 ### The MDF
 
-The MDF file is important for all VSCP nodes. It is a XML or JSON file that describes the capabilities and features of the node. It is used by clients to determine what the node can do and how it can be used. The MDF file for this demo node is located on a public server [htts://eurosource.se/blinky0.json](https://eurosource.se/blinky0.json) directory. 
+The MDF file is important for all VSCP nodes. It is a XML or JSON file that describes the capabilities and features of the node. It is used by clients to determine what the node can do and how it can be used. The MDF file for this demo node is located on a public server [https://eurosource.se/blinky0.json](https://eurosource.se/blinky0.json) directory. 
 
 
 ### VSCP Works
 
-![](./images/vwcp-works-read-reg.png)
+![](./images/vscp-works-read-reg.png)
 
 VSCP Works is a cross-platform application for Windows, Linux and MacOS. It is a great tool for testing and debugging VSCP nodes. It can be used to send and receive VSCP events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications. You can download it from the [VSCP Works GitHub page](https://github.com/grodansparadis/vscp-works-qt).
 
@@ -302,17 +303,17 @@ VSCP Works make it much easier to send and read events from the VSCP link server
 
 To set up a connection to the VSCP link server, you need to create a new connection. Right click on the "tcp/ip Connections" tab and select "Add new tcp/ip connection...". In the connection settings you need to set the IP address of the WIZ-IP20 module and the port number (9598). You also need to set the username and password for the connection. The default username is "vscp" and the default password is "secret".  You can test that the connection works by clicking on the "Test connection" button. If the connection is successful, you will see a message indicating that the connection was successful. You can now use VSCP Works to send and receive events from the VSCP link server. Press OK to save.
 
-Now double click on the connection ands a session window will open. You can now use the session window to send and receive events from the VSCP link server. You can also use the session window to read and write registers. The session window has a lot of features that make it easy to use. You can use it to send and receive events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications.
+Now double click on the connection and a session window will open. You can now use the session window to send and receive events from the VSCP link server. You can also use the session window to read and write registers. The session window has a lot of features that make it easy to use. You can use it to send and receive events, read and write registers, and much more. It is a great tool for learning about VSCP and for developing VSCP applications.
 
-For a device like this demo node the remote interface is polled for events. This makes it slower than it normally is. This is beacise the WIZnet IP20 just allow one TCP connection at a time and VSCP Works prefere to use two connections, one for sending and one for receiving events. But this is not possible with the WIZnet IP20 module. So the remote interface is polled for events instead. This is not a problem for this demo node (except that things get slower), but it can be a problem for more complex nodes that generate a lot of events.
+For a device like this demo node the remote interface is polled for events. This makes it slower than it normally is. This is because the WIZnet IP20 just allow one TCP connection at a time and VSCP Works prefers to use two connections, one for sending and one for receiving events. But this is not possible with the WIZnet IP20 module. So the remote interface is polled for events instead. This is not a problem for this demo node (except that things get slower), but it can be a problem for more complex nodes that generate a lot of events.
 
-![](./images/vcp-works-read-reg.png)
+![](./images/vscp-works-read-reg.png)
 
 If you connected you will now see the heartbeat events from the node. In the lower part you can define events you want to send to the node. Just enter data and click the send button or double click the line to transfer them to the node. You get response data in the session window.
 
 ![](./images/vscp-works-tx-event.png)
 
-in the repository folder [vscp-works](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/vscp-works) you can find a VSCP Works [file with tx items](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/vscp-works/txset-read-write.xml) for reading and writing registers on the demo node that you can load using the load button in the transmission area.
+in the repository folder [vscp-works](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/tree/main/vscp-works) you can find a VSCP Works [file with tx items](https://github.com/grodansparadis/vscp-demo-link-stm32f401-wiz-ip20-blinky/blob/main/vscp-works/txset-read-write.xml) for reading and writing registers on the demo node that you can load using the load button in the transmission area.
 
 ## Programmatic access to the VSCP link server
 
