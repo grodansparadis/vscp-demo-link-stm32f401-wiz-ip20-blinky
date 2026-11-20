@@ -113,3 +113,139 @@ void flash_storage_read(uint32_t offset, uint16_t *data, size_t count)
         data[i] = *(const volatile uint16_t *)addr;
     }
 }
+
+/* ------------------------------------------------------------------ */
+/*                          Record storage                            */
+/* ------------------------------------------------------------------ */
+
+#define FLASH_STORAGE_WORDS (FLASH_STORAGE_SIZE / 2U)
+
+static uint32_t s_next_free = 0xFFFFFFFFUL; /* Word index of the next free record slot (unknown) */
+
+static uint16_t flash_word(uint32_t word)
+{
+    return *(const volatile uint16_t *)(FLASH_STORAGE_BASE + (word * 2U));
+}
+
+static uint16_t record_checksum(const uint16_t *data, size_t count)
+{
+    uint32_t sum = (uint32_t)count;
+    for (size_t i = 0U; i < count; i++) {
+        sum += data[i];
+        sum = (sum & 0xFFFFU) + (sum >> 16);
+    }
+    return (uint16_t)~sum;
+}
+
+static uint16_t flash_record_checksum(uint32_t word, size_t count)
+{
+    uint32_t sum = (uint32_t)count;
+    for (size_t i = 0U; i < count; i++) {
+        sum += flash_word(word + 2U + i);
+        sum = (sum & 0xFFFFU) + (sum >> 16);
+    }
+    return (uint16_t)~sum;
+}
+
+static bool slot_is_blank(uint32_t word, size_t words)
+{
+    for (size_t i = 0U; i < words; i++) {
+        if (0xFFFFU != flash_word(word + i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Find the newest valid record (returns its word index or 0xFFFFFFFF) and
+   the first blank slot after the used part. */
+static uint32_t scan_records(size_t count, uint32_t *pnext_free)
+{
+    const size_t slot = 3U + count;
+    uint32_t newest   = 0xFFFFFFFFUL;
+    uint32_t word     = 0U;
+
+    while ((word + slot) <= FLASH_STORAGE_WORDS) {
+        if ((FLASH_STORAGE_RECORD_MAGIC == flash_word(word)) && (count == flash_word(word + 1U)) &&
+            (flash_record_checksum(word, count) == flash_word(word + 2U + count))) {
+            newest = word;
+        }
+        else if (slot_is_blank(word, slot)) {
+            break; /* Records are appended, so the rest is free */
+        }
+        word += slot; /* Valid, or a damaged/foreign slot: skip it */
+    }
+    *pnext_free = word;
+    return newest;
+}
+
+bool flash_storage_load(uint16_t *data, size_t count)
+{
+    if ((NULL == data) || (0U == count)) {
+        return false;
+    }
+
+    uint32_t next_free;
+    uint32_t newest = scan_records(count, &next_free);
+    s_next_free     = next_free;
+
+    if (0xFFFFFFFFUL != newest) {
+        for (size_t i = 0U; i < count; i++) {
+            data[i] = flash_word(newest + 2U + i);
+        }
+        return true;
+    }
+
+    /* Old layout: header at offset 0 and the data right after it */
+    flash_storage_header_t hdr;
+    flash_storage_read(0U, (uint16_t *)&hdr, sizeof(hdr) / sizeof(uint16_t));
+    if ((FLASH_STORAGE_MAGIC == hdr.magic) && (FLASH_STORAGE_VERSION == hdr.version)) {
+        flash_storage_read(FLASH_STORAGE_DATA_OFFSET, data, count);
+        return true;
+    }
+
+    return false;
+}
+
+HAL_StatusTypeDef flash_storage_save(const uint16_t *data, size_t count)
+{
+    if ((NULL == data) || (0U == count) || ((3U + count) > FLASH_STORAGE_WORDS)) {
+        return HAL_ERROR;
+    }
+
+    const size_t slot = 3U + count;
+    uint32_t word     = s_next_free;
+
+    if (0xFFFFFFFFUL == word) {
+        (void)scan_records(count, &word);
+    }
+
+    /* Full, or the slot is not blank (damaged): start over in an erased sector */
+    if (((word + slot) > FLASH_STORAGE_WORDS) || !slot_is_blank(word, slot)) {
+        HAL_StatusTypeDef status = flash_storage_erase();
+        if (HAL_OK != status) {
+            return status;
+        }
+        word = 0U;
+    }
+
+    const uint16_t head[2]  = { 0xFFFFU, (uint16_t)count };
+    const uint16_t checksum = record_checksum(data, count);
+    HAL_StatusTypeDef status;
+
+    /* Length, data and checksum first, the magic last */
+    status = flash_storage_write((word + 1U) * 2U, &head[1], 1U);
+    if (HAL_OK == status) {
+        status = flash_storage_write((word + 2U) * 2U, data, count);
+    }
+    if (HAL_OK == status) {
+        status = flash_storage_write((word + 2U + count) * 2U, &checksum, 1U);
+    }
+    if (HAL_OK == status) {
+        const uint16_t magic = FLASH_STORAGE_RECORD_MAGIC;
+        status               = flash_storage_write(word * 2U, &magic, 1U);
+    }
+
+    s_next_free = (HAL_OK == status) ? (word + slot) : 0xFFFFFFFFUL;
+    return status;
+}

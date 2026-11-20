@@ -156,83 +156,106 @@
 #define WIZ_IP20_IP_ALLOCATION_METHOD "IM0\r\n"                               // IM0 = static, IM1 = DHCP, IM2 = PPPoE
 #define WIZ_IP20_PORT                 "LP" _BOARD_XSTR(VSCP_LINK_PORT) "\r\n" // derived from VSCP_LINK_PORT in board-config.h
 
-// Operation mode
+// ---------------------------------------------------------------------------
+// Transport settings (see BLINKY_MODE_* in blinky.h). Commands are from the
+// W55RP20-S2E command manual; the module is configured at every start.
+// ---------------------------------------------------------------------------
+
+// Remote host: the link server for TCP client, the UDP peer, the MQTT broker.
+// Override with -DBLINKY_REMOTE_HOST=\"192.168.1.9\" etc.
+#ifndef BLINKY_REMOTE_HOST
+#define BLINKY_REMOTE_HOST "192.168.1.7"
+#endif
 
 #ifdef BLINKY_MODE_TCP_SERVER
-#define WIZ_IP20_OPERATION_MODE "OP1\r\n" // OP1\r\n TCP server mode
+#define WIZ_IP20_OPERATION_MODE "OP1\r\n" // TCP server
+#ifndef BLINKY_LOCAL_PORT
+#define BLINKY_LOCAL_PORT VSCP_LINK_PORT
+#endif
 #elif defined(BLINKY_MODE_TCP_CLIENT)
-#define WIZ_IP20_OPERATION_MODE "OP0\r\n" // OP0\r\n TCP client mode
+#define WIZ_IP20_OPERATION_MODE "OP0\r\n" // TCP client
+#ifndef BLINKY_REMOTE_PORT
+#define BLINKY_REMOTE_PORT VSCP_LINK_PORT
+#endif
 #elif defined(BLINKY_MODE_UDP)
-#define WIZ_IP20_OPERATION_MODE "OP3\r\n" // OP3\r\n UDP mode
+#define WIZ_IP20_OPERATION_MODE "OP3\r\n" // UDP
+#ifndef BLINKY_LOCAL_PORT
+#define BLINKY_LOCAL_PORT 33333 // VSCP UDP port
+#endif
+#ifndef BLINKY_REMOTE_PORT
+#define BLINKY_REMOTE_PORT 33333
+#endif
 #elif defined(BLINKY_MODE_MULTICAST)
-#define WIZ_IP20_OPERATION_MODE "OP3\r\n" // OP3\r\n Multicast mode
+#define WIZ_IP20_OPERATION_MODE "OP3\r\n" // UDP, multicast remote address
+#undef BLINKY_REMOTE_HOST
+#define BLINKY_REMOTE_HOST "224.0.23.158" // VSCP multicast group
+#ifndef BLINKY_LOCAL_PORT
+#define BLINKY_LOCAL_PORT 44444 // VSCP multicast port
+#endif
+#ifndef BLINKY_REMOTE_PORT
+#define BLINKY_REMOTE_PORT 44444
+#endif
 #elif defined(BLINKY_MODE_MQTT)
-#define WIZ_IP20_OPERATION_MODE "OP5\r\n" // OP5\r\n MQTT mode
+#define WIZ_IP20_OPERATION_MODE "OP5\r\n" // MQTT client
+#ifndef BLINKY_REMOTE_PORT
+#define BLINKY_REMOTE_PORT 1883 // MQTT broker port
+#endif
+#endif
+
+#ifndef BLINKY_LOCAL_PORT
+#define BLINKY_LOCAL_PORT 0 // Any local port (client modes)
+#endif
+
+#define WIZ_IP20_LINK_CLIENT_RECONNECT "RI3000\r\n" // TCP client/MQTT reconnect interval in ms
+
+// Packing of serial data into network data:
+//   TCP (link protocol) and MQTT: lines, packed at the newline (PD0a).
+//   UDP/multicast: one datagram per frame: binary frames are written in one
+//   piece and sent when the serial line has been idle for 3 ms (PT3).
+#ifdef BLINKY_TRANSPORT_LINK
+#define WIZ_IP20_LINK_PACKING_TIME "PT0\r\n"
+#define WIZ_IP20_LINK_PACKING_CHAR "PD0a\r\n" // Link protocol lines (as before)
+#elif defined(BLINKY_MODE_MQTT)
+#define WIZ_IP20_LINK_PACKING_TIME "PT0\r\n"
+#define WIZ_IP20_LINK_PACKING_CHAR "PD0a\r\n" // One MQTT message per line
 #else
-#error "You must define WIZ_IP20_OPERATION_MODE based on the selected mode"
+#define WIZ_IP20_LINK_PACKING_TIME "PT3\r\n"
+#define WIZ_IP20_LINK_PACKING_CHAR "PD00\r\n" // Binary frames: no delimiter character
 #endif
+#define WIZ_IP20_LINK_PACKING_SIZE "PS0\r\n" // No size packing
 
-// Remote host (client) settings
-
-#if defined(BLINKY_MODE_TCP_SERVER) || defined(BLINKY_MODE_TCP_CLIENT)
-#define WIZ_IP20_REMOTE_HOST_IP   "RI192.168.1.7\r\n" // RI192.168.1.7\r\n
-#define WIZ_IP20_REMOTE_HOST_PORT "RP9598\r\n"        // RP9598\r\n
-#elif defined(BLINKY_MODE_UDP)
-#define WIZ_IP20_REMOTE_HOST_IP   "RI255.255.255.255\r\n"
-#define WIZ_IP20_REMOTE_HOST_PORT "RP33333\r\n" // RP33333\r\n
-#elif defined(BLINKY_MODE_MULTICAST)
-#define WIZ_IP20_REMOTE_HOST_IP   "RI224.0.23.158\r\n" // VSCP multicast address
-#define WIZ_IP20_REMOTE_HOST_PORT "RP44444\r\n"
-#elif defined(BLINKY_MODE_MQTT)
-#define WIZ_IP20_REMOTE_HOST_IP   "RI192.168.1.7\r\n" // RI192.168.1.7\r\n
-#define WIZ_IP20_REMOTE_HOST_PORT "RP1883\r\n"        // RP1883\r\n
-#endif
-
-#define WIZ_IP20_LINK_PACKING_TIME "PT0\r\n" // PT0\r\n data packing time in milliseconds
-#define WIZ_IP20_LINK_PACKING_SIZE "PS0\r\n" // PS0\r\n data packing size in bytes (0 not used)
-#define WIZ_IP20_LINK_PACKING_CHAR                                                                                     \
-  "PD0a\r\n" // PD0a\r\n data packing char (0 not used, 0x0a = newline) The designated character is not included in
-             // data.
-#define WIZ_IP20_LINK_INACTIVITY                "IT0\r\n"    // IT0\r\n inactivity time in seconds (0 not used)
-#define WIZ_IP20_LINK_RETRY_CNT                 "TR0\r\n"    // TR0\r\n retry count (0 not used)
-#define WIZ_IP20_LINK_KEEP_ALIVE                "KA0\r\n"    // KA0\r\n keep alive (0 not used, 1 = enabled)
-#define WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL       "KI1000\r\n" // KI1000\r\n keep alive interval in milliseconds
-#define WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL "KE5000\r\n" // KE5000\r\n keep alive retry interval in milliseconds
-
-#define WIZ_IP20_LINK_SSL_CLOSE "SO0" // SO0\r\n SSL close (0 not used, 1 = enabled)
-
-// TCP client settings (not used here)
-#define WIZ_IP20_LINK_CLIENT_RECONNECT "RI3000\r\n" // RI3000\r\n TCP client reconnect interval in milliseconds
+#define WIZ_IP20_LINK_INACTIVITY                "IT0\r\n"    // inactivity time in seconds (0 not used)
+#define WIZ_IP20_LINK_KEEP_ALIVE                "KA0\r\n"    // keep alive (0 not used, 1 = enabled)
+#define WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL       "KI1000\r\n" // keep alive interval in milliseconds
+#define WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL "KE5000\r\n" // keep alive retry interval in milliseconds
+#define WIZ_IP20_LINK_SSL_CLOSE                 "SO0\r\n"    // SSL close (0 not used)
 
 /*
-  Strings to send on connection and disconnection. These are used to identify the device
-  when a new connection is made or when a connection is lost. If you change you must make
-  sure that you do change the strings in the main loop as well.
+  Strings the module writes to the serial port when a TCP connection opens
+  and closes. The main loop looks for them in the TCP modes; in the other
+  modes they are empty (not used) so they do not mix with the data.
 */
-#define WIZ_IP20_LINK_CONNECT_STR "SD" BLINKY_CONNECT_STR "\r\n" // SD<CONNECT>\r\n string to send on new connection
-#define WIZ_IP20_LINK_DISCONNECT_STR                                                                                   \
-  "DD" BLINKY_DISCONNECT_STR "\r\n" // DD<DISCONNECT>\r\n string to send on disconnection
-#define WIZ_IP20_LINK_ETH_CONNECT_STR                                                                                  \
-  "WIZNET-IP20\r\n" // SE\r\n string to send on new Ethernet connection (not used here)
-
-#define WIZ_IP20_TCPSRV_ENABLE_PASSWORD "CP0\r\n" // CP0\r\n password for TCP server (0 not used)
-// #define WIZ_IP20_TCPSRV_SET_PASSWORD  "NPsecret\r\n" // NPsecret\r\n password for TCP server (max 8 characters)
-// #define WIZ_IP20_SEARCH_ID_CODE  "SPvscp\r\n" // SPvscp\r\n search id code (max 8 characters)
-#define WIZ_IP20_DEBUG_ENABLE "DG0\r\n" // DG0\r\n enable debug messages (0 not used, 1 = enabled)
-
-// MQTT settings (not used here)
-#ifdef BLINKY_DEMO_MODE_MQTT
-#define WIZ_IP20_MQTT_USER       "QUvscp\r\n"     // QUmqtt_user\r\n MQTT username (max 128 characters)
-#define WIZ_IP20_MQTT_PASSWORD   "QPsecret\r\n"   // QPmqtt_password\r\n MQTT password (max 128 characters)
-#define WIZ_IP20_MQTT_CLIENT_ID  "WCwiz_ip20\r\n" // QCmqtt_client_id\r\n MQTT client ID (max 128 characters)
-#define WIZ_IP20_MQTT_KEEP_ALIVE "QK0\r\n"        // QK0\r\n MQTT keep alive (0 not used, 1 = enabled)
-#define WIZ_IP20_MQTT_QOS        "QQ0\r\n"        // QQ0\r\n MQTT QoS (0, 1, or 2)
-#define WIZ_IP20_MQTT_PUB_TOPIC                                                                                        \
-  "PUvscp/{{guid}}/{{class}}/{{type}}\r\n"                   // PUtopic\r\n MQTT publish topic (max 128 characters)
-#define WIZ_IP20_MQTT_SUB_TOPIC0 "U0vscp/{{guid}}/input\r\n" // U0topic\r\n MQTT subscribe topic 1 (max 128 characters)
-#define WIZ_IP20_MQTT_SUB_TOPIC1 "U1mqtt/topic1\r\n"         // U1topic\r\n MQTT subscribe topic 2 (max 128 characters)
-#define WIZ_IP20_MQTT_SUB_TOPIC2 "U2mqtt/topic2\r\n"         // U2topic\r\n MQTT subscribe topic 3 (max 128 characters)
+#ifdef BLINKY_TRANSPORT_LINK
+#define WIZ_IP20_LINK_CONNECT_STR    "SD" BLINKY_CONNECT_STR "\r\n"
+#define WIZ_IP20_LINK_DISCONNECT_STR "DD" BLINKY_DISCONNECT_STR "\r\n"
+#else
+#define WIZ_IP20_LINK_CONNECT_STR    "SD\r\n"
+#define WIZ_IP20_LINK_DISCONNECT_STR "DD\r\n"
 #endif
+#define WIZ_IP20_LINK_ETH_CONNECT_STR "SE\r\n" // Nothing is sent over Ethernet on connect
+
+#define WIZ_IP20_TCPSRV_ENABLE_PASSWORD "CP0\r\n" // no password for TCP server
+#define WIZ_IP20_DEBUG_ENABLE           "DG0\r\n" // no debug messages
+
+// MQTT (BLINKY_MODE_MQTT). The topics are vscp/<guid>/out and vscp/<guid>/in.
+#ifndef BLINKY_MQTT_USER
+#define BLINKY_MQTT_USER "vscp"
+#endif
+#ifndef BLINKY_MQTT_PASSWORD
+#define BLINKY_MQTT_PASSWORD "secret"
+#endif
+#define BLINKY_MQTT_KEEP_ALIVE 60 // seconds
+#define BLINKY_MQTT_QOS        0
 
 /*!
  * @brief Print help information for the W55RP20-S2E module.
@@ -302,7 +325,7 @@ wiznet_ip20_save(void);
  */
 
 int
-wiznet_ip20_init(void);
+wiznet_ip20_init(const uint8_t *guid);
 
 /*!
  * @brief  Send a command to the WIZnet IP20 module and receive the response.

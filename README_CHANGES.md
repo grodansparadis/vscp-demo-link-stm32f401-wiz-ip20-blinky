@@ -7,6 +7,17 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- The decision matrix works: events from clients are run through it (only the protocol handler got them), its registers 0x60-0x7F can be read and written, and it uses the Level I rows of the MDF (new vscp-firmware with fixed Level II matrix and `bDmLevel1Rows`)
+- Settings are kept: flash was rewritten without erasing, so only the first save worked. The configuration is now saved as appended records (erase only when the sector is full), one second after the last change and at once when a session ends; the old layout is loaded once
+- Nickname and user id are saved and loaded; the node GUID (from the MCU id) is set for the firmware too (sent events had an all-zero GUID)
+- Status register writes turn the LED off as well as on; start blink (action 5) keeps the interval (it was overwritten from the parameter and the next byte); the LED actions need control bit 7; on/off/toggle stop blinking
+- CLASS1.INFORMATION ON/OFF events when the LED is turned on/off, CLASS1.CONTROL TURN-OFF on button release, alarm bit 7 when the millisecond counter wraps
+- Button events are made in the main loop (they were allocated and queued in the interrupt handler); control bit 6 (enable button) is respected
+- Defaults as in the MDF: blink interval 500 ms, control 0xCE (millisecond counter off)
+- New transports, chosen with `-DBLINKY_MODE=`: TCP client, UDP, multicast and MQTT (VSCP JSON events), besides the TCP server. The WIZ-IP20 remote host is set with RH (RI is the reconnect interval), and the MQTT settings use the right commands (QC, QO) and the node GUID in the topics
+- VSCP frame CRCs were always 0 (`crcInit()` was never called): sent frames had no valid CRC and received frames were not checked
+- vscp-firmware updated to master (`src/` layout); JSON support only in the MQTT build
+- README: Blinky functionality, transports, flash storage
 - README and docs corrected for the STM32F401: title, clone URL, OpenOCD target (stm32f4x), broken image and repository links, MDF location
 - Removed files left over from the STM32F103 project that the build does not use (F1 HAL driver and CMSIS device files, backup files, EWARM project, F103 linker script, startup file and CubeMX files)
 - Fixed typo in readme (2e860a6)

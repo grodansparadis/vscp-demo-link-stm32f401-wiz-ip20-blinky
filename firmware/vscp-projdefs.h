@@ -40,7 +40,10 @@
 // #define VSCP_FWHLP_CRYPTO_USE_PSA_CRYPTO
 
 // Enable JSON support in firmware helper.
+// JSON support (needs cJSON) for the MQTT transport, which sends VSCP JSON events
+#ifdef BLINKY_MODE_MQTT
 #define VSCP_FWHLP_JSON_SUPPORT
+#endif
 
 // Enable XML support in firmware helper.
 #define VSCP_FWHLP_XML_SUPPORT

@@ -31,6 +31,7 @@
 #include <wiznet-ip20.h>
 #include <flash_storage.h>
 #include <vscp-fifo.h>
+#include <vscp-crc.h>
 #include <vscp-class.h>
 #include <vscp-type.h>
 #include <vscp-firmware-helper.h>
@@ -53,47 +54,7 @@
 // ** Check so one and only one build type is enabled **
 
 /* Convert each define to 0 or 1 */
-#ifdef BLINKY_MODE_TCP_SERVER
-#define _MODE_TCP_SERVER 1
-#else
-#define _MODE_TCP_SERVER 0
-#endif
-
-#ifdef BLINKY_DEMO_MODE_TCP_CLIENT
-#define _OPT_MODE_TCP_CLIENT 1
-#else
-#define _OPT_MODE_TCP_CLIENT 0
-#endif
-
-#ifdef BLINKY_DEMO_MODE_UDP
-#define _OPT_MODE_UDP 1
-#else
-#define _OPT_MODE_UDP 0
-#endif
-
-#ifdef BLINKY_DEMO_MODE_MULTICAST
-#define _OPT_MODE_MULTICAST 1
-#else
-#define _OPT_MODE_MULTICAST 0
-#endif
-
-#ifdef BLINKY_DEMO_MODE_MQTT
-#define _OPT_MODE_MQTT 1
-#else
-#define _OPT_MODE_MQTT 0
-#endif
-
-#define _OPT_COUNT (_MODE_TCP_SERVER + _OPT_MODE_TCP_CLIENT + _OPT_MODE_UDP + _OPT_MODE_MULTICAST + _OPT_MODE_MQTT)
-
-#if _OPT_COUNT > 1
-#error                                                                                                                 \
-  "Only one of BLINKY_MODE_TCP_SERVER/BLINKY_DEMO_MODE_TCP_CLIENT/BLINKY_DEMO_MODE_UDP/BLINKY_DEMO_MODE_MULTICAST/BLINKY_DEMO_MODE_MQTT may be defined at a time"
-#endif
-
-#if _OPT_COUNT != 1
-#error                                                                                                                 \
-  "Exactly one of BLINKY_MODE_TCP_SERVER/BLINKY_DEMO_MODE_TCP_CLIENT/BLINKY_DEMO_MODE_UDP/BLINKY_DEMO_MODE_MULTICAST/BLINKY_DEMO_MODE_MQTT must be defined"
-#endif
+// The transport (BLINKY_MODE_*) is checked in blinky.h
 
 /* USER CODE END PD */
 
@@ -151,6 +112,8 @@ register_union_t g_registers = { .data = {
 
 volatile uint8_t g_user_reg_status       = 0; // Status register for the device (std registers) [NON PERSISTENT]
 volatile uint32_t g_user_reg_millisecond = 0; // Millisecond counter (std registers) [NON PERSISTENT]
+volatile uint8_t g_button_events         = 0; // BLINKY_BUTTON_PRESSED/RELEASED from the EXTI handler
+volatile uint8_t g_counter_wrapped       = 0; // Set when the millisecond counter wraps to zero
 
 //----------------------------------------------------------------------------
 //                         VSCP Binary Protocol
@@ -196,7 +159,8 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .bHighEndServerResponse         = 0, // React on high end server probe. Only level II (FALSE)
   .bEnableWriteProtectedLocations = 0, // GUID/manufacturer id (FALSE)
   .bUse16BitNickname              = 0, // 16-bit nickname. Default is false. Only for level I (FALSE)
-  .bInterestedInAllEvents         = 1, // TRUE if interested in all events. If FALSE, only events of
+  .bInterestedInAllEvents         = 1,
+  .bDmLevel1Rows                  = 1, // Level I (8-byte) decision matrix rows, as in the MDF // TRUE if interested in all events. If FALSE, only events of
                                        // interest are sent to the application on request.
 
   .interval_heartbeat = 60000, // Interval for heartbeats in milli-seconds (0=off)
@@ -208,7 +172,7 @@ static vscp_frmw2_firmware_context_t ctx_firmware = {
   .pDm         = g_registers.data.dm, // Pointer to decision matrix storage (NULL if no DM).
   .nDmRows     = 4,                   // Number of DM rows (0 if no DM).
   .sizeDmRow   = 8,                   // Size for one DM row.
-  .regOffsetDm = 0xff,                // Register offset for DM (normally zero)
+  .regOffsetDm = BLINKY_REG_DM_START, // Register offset for DM (0x60 in the MDF)
   .pageDm      = 0,                   // Register page where DM definition starts
 
   .pInternalMdf      = NULL, // Internal MDF data. Firmware can use this as needed.
@@ -344,10 +308,14 @@ uart1_rx_start(void);
 // uart1_rx_getline(char *out, size_t max_len, uint16_t timeout_ms);
 static int
 uart1_rx_wait_for(const char *needle, uint16_t timeout_ms);
+#ifdef BLINKY_TRANSPORT_LINK
 static int
 uart1_rx_scan(const char *needle);
+#endif
+#ifdef BLINKY_TRANSPORT_LINK
 static void
 uart1_rx_consume_through(const char *needle);
+#endif
 void
 setLinkContextDefaults(vscp_link_ctx_t *pctx);
 /* USER CODE END PFP */
@@ -384,108 +352,15 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     last_edge_ms = now;
 
+    // Only record the change here: the events are made in blinky_work() in
+    // the main loop (no allocation, FIFO or UART use in interrupt context)
     if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET) {
-
-      LOGSTR("Button pressed (pin went low)\r\n");
-
-      // Set the button active bit in status register
       g_user_reg_status |= BLINKY_STATUS_BTN_ON;
-
-      // If enabled Send a VSCP Turn-ON event to indicate the button press.
-      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.control?id=type5
-      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_TURNON) {
-
-        vscp_event_t *pev = vscp_fwhlp_newEvent();
-        if (NULL == pev) {
-          return;
-        }
-
-        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
-          vscp_fwhlp_deleteEvent(&pev);
-          return;
-        }
-
-        pev->vscp_class = VSCP_CLASS1_CONTROL;
-        pev->vscp_type  = VSCP_TYPE_CONTROL_TURNON;
-        pev->pdata[0]   = g_registers.data.button_zero_opt_byte;
-        pev->pdata[1]   = g_registers.data.button_zone;
-        pev->pdata[2]   = g_registers.data.button_subzone;
-
-        // Add event to the outgoing FIFO for the link protocol to send to client
-        ctx_link.statistics.cntTransmitFrames++;
-        ctx_link.statistics.cntTransmitData += pev->sizeData; 
-        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
-          ctx_link.statistics.cntOverruns++;
-          LOGSTR("Failed to enqueue button press event\r\n");          
-          vscp_fwhlp_deleteEvent(&pev);
-        }
-      }
-
-      // If enabled Send a VSCP START event to indicate the button down.
-      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type25
-      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_START) {
-
-        vscp_event_t *pev = vscp_fwhlp_newEvent();
-        if (NULL == pev) {
-          return;
-        }
-
-        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
-          vscp_fwhlp_deleteEvent(&pev);
-          return;
-        }
-
-        pev->vscp_class = VSCP_CLASS1_INFORMATION;
-        pev->vscp_type  = VSCP_TYPE_INFORMATION_START;
-        pev->pdata[0]   = 0; // reserved for future use;
-        pev->pdata[1]   = g_registers.data.button_zone;
-        pev->pdata[2]   = g_registers.data.button_subzone;
-
-        // Add event to the outgoing FIFO for the link protocol to send to client
-        ctx_link.statistics.cntTransmitFrames++;
-        ctx_link.statistics.cntTransmitData += pev->sizeData; 
-        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
-          ctx_link.statistics.cntOverruns++;
-          LOGSTR("Failed to enqueue button start event\r\n");
-          vscp_fwhlp_deleteEvent(&pev);
-        }
-      }
+      g_button_events |= BLINKY_BUTTON_PRESSED;
     }
     else {
-      LOGSTR("Button released (pin went high)\r\n");
-
-      // Clear the button active bit in status register
       g_user_reg_status &= ~BLINKY_STATUS_BTN_ON;
-
-      // If enabled Send a VSCP STOP event to indicate the button release.
-      // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type24
-      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_STOP) {
-
-        vscp_event_t *pev = vscp_fwhlp_newEvent();
-        if (NULL == pev) {
-          return;
-        }
-
-        if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(&ctx_firmware, pev, 3)) {
-          vscp_fwhlp_deleteEvent(&pev);
-          return;
-        }
-
-        pev->vscp_class = VSCP_CLASS1_INFORMATION;
-        pev->vscp_type  = VSCP_TYPE_INFORMATION_STOP;
-        pev->pdata[0]   = 0; // reserved for future use;
-        pev->pdata[1]   = g_registers.data.button_zone;
-        pev->pdata[2]   = g_registers.data.button_subzone;
-
-        // Add event to the outgoing FIFO for the link protocol to send to client
-        ctx_link.statistics.cntTransmitFrames++;
-        ctx_link.statistics.cntTransmitData += pev->sizeData;
-        if (!vscp_fifo_write(&ctx_link.fifoEventsOut, pev)) {
-          ctx_link.statistics.cntOverruns++;
-          LOGSTR("Failed to enqueue button release event\r\n");
-          vscp_fwhlp_deleteEvent(&pev);
-        }
-      }
+      g_button_events |= BLINKY_BUTTON_RELEASED;
     }
   }
 }
@@ -705,6 +580,7 @@ uart1_rx_wait_for(const char *needle, uint16_t timeout_ms)
  * @retval -1 Needle not present.
  */
 
+#ifdef BLINKY_TRANSPORT_LINK
 static int
 uart1_rx_scan(const char *needle)
 {
@@ -729,6 +605,7 @@ uart1_rx_scan(const char *needle)
   }
   return -1;
 }
+#endif
 
 /*!
  * @brief  Consume bytes from the ring buffer up to and including the first occurrence of @p needle.
@@ -739,6 +616,7 @@ uart1_rx_scan(const char *needle)
  *
  * @param  needle  String to search for (case-sensitive substring match).
  */
+#ifdef BLINKY_TRANSPORT_LINK
 static void
 uart1_rx_consume_through(const char *needle)
 {
@@ -765,6 +643,7 @@ uart1_rx_consume_through(const char *needle)
     }
   }
 }
+#endif
 
 /*!
  * @brief  Get the unique identifier and set (GUID) for the device.
@@ -893,12 +772,7 @@ resetRegisters(void)
   g_registers.data.userdata[2] = 0x33;
   g_registers.data.userdata[3] = 0x44;
   g_registers.data.userdata[4] = '\0';
-  
-  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
-                                    g_registers.word_array,
-                                    sizeof(register_union_t) / sizeof(uint16_t))) {
-    LOGSTR("Failed to write flash storage\r\n");
-  }
+  // Saved by the caller (blinky_request_save)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -915,6 +789,172 @@ validate_user(const char *user, const char *password)
   return (strcmp(user, valid_user) == 0) && (strcmp(password, valid_password) == 0);
 }
 
+#ifndef BLINKY_TRANSPORT_LINK
+
+/*
+  Datagram (UDP, multicast) and MQTT transports. The WIZ-IP20 passes the
+  network data through the serial port as it is, so incoming data is
+  collected here: a message ends when it is complete (frames) or at a
+  newline / after a short pause (MQTT).
+*/
+
+#define TRANSPORT_RX_MAX     (40 + 512 + 32) // Largest frame / JSON message
+#define TRANSPORT_RX_IDLE_MS 30u             // Pause that ends an incomplete message
+
+static uint8_t transport_rx[TRANSPORT_RX_MAX + 1];
+static size_t transport_rx_len      = 0;
+static uint32_t transport_rx_last   = 0;
+
+// Move received bytes from the UART ring buffer to transport_rx
+static void
+transport_collect(void)
+{
+  while ((uart1_rx_tail != uart1_rx_head) && (transport_rx_len < TRANSPORT_RX_MAX)) {
+    transport_rx[transport_rx_len++] = uart1_rx_buf[uart1_rx_tail];
+    uart1_rx_tail                    = (uart1_rx_tail + 1u) & (UART1_RX_BUF_SIZE - 1u);
+    transport_rx_last                = HAL_GetTick();
+  }
+}
+
+static void
+transport_consume(size_t n)
+{
+  if (n >= transport_rx_len) {
+    transport_rx_len = 0;
+    return;
+  }
+  memmove(transport_rx, transport_rx + n, transport_rx_len - n);
+  transport_rx_len -= n;
+}
+
+// Give a received event to the firmware: protocol events and the decision matrix
+static void
+transport_received(vscp_event_t *pev)
+{
+  ctx_link.statistics.cntReceiveFrames++;
+  ctx_link.statistics.cntReceiveData += pev->sizeData;
+  vscp_frmw2_work(&ctx_firmware, pev);
+}
+
+#if defined(BLINKY_MODE_UDP) || defined(BLINKY_MODE_MULTICAST)
+
+/*
+  VSCP frames (version 0, not encrypted):
+    0 packet type/encryption, 1-2 head, 3-6 timestamp, 7-13 date/time,
+    14-15 class, 16-17 type, 18-33 GUID, 34-35 data size, data, CRC (2)
+*/
+#define FRAME_HEADER_SIZE 36
+
+static void
+transport_work(char *buf, size_t size)
+{
+  transport_collect();
+
+  // Received frames. A byte that does not start a valid frame is skipped
+  // (resynchronisation after noise or a lost byte).
+  while (transport_rx_len >= FRAME_HEADER_SIZE) {
+    size_t datasize = ((size_t) transport_rx[34] << 8) | transport_rx[35];
+    if (datasize > 512) {
+      transport_consume(1);
+      continue;
+    }
+    size_t total = FRAME_HEADER_SIZE + datasize + 2;
+    if (transport_rx_len < total) {
+      break;
+    }
+    vscp_event_t *pev = vscp_fwhlp_newEvent();
+    if (NULL == pev) {
+      break;
+    }
+    if (VSCP_ERROR_SUCCESS == vscp_fwhlp_getEventFromFrame(pev, transport_rx, total)) {
+      transport_received(pev);
+      transport_consume(total);
+    }
+    else {
+      transport_consume(1);
+    }
+    vscp_fwhlp_deleteEvent(&pev);
+  }
+
+  // Drop an incomplete frame after a pause
+  if (transport_rx_len && ((HAL_GetTick() - transport_rx_last) > TRANSPORT_RX_IDLE_MS)) {
+    transport_rx_len = 0;
+  }
+
+  // Events from the device: one frame per datagram
+  vscp_event_t *pev = NULL;
+  if (vscp_fifo_read(&ctx_link.fifoEventsOut, &pev) && (NULL != pev)) {
+    size_t framesize = vscp_fwhlp_getFrameSizeFromEvent(pev);
+    if (framesize && (framesize <= size) &&
+        (VSCP_ERROR_SUCCESS == vscp_fwhlp_writeEventToFrame((uint8_t *) buf, framesize, VSCP_ENCRYPTION_NONE, pev))) {
+      HAL_UART_Transmit(&huart1, (uint8_t *) buf, (uint16_t) framesize, HAL_MAX_DELAY);
+      HAL_Delay(5); // Idle line ends the datagram (packing time PT3)
+    }
+    vscp_fwhlp_deleteEvent(&pev);
+  }
+}
+
+#elif defined(BLINKY_MODE_MQTT)
+
+/*
+  MQTT: one VSCP JSON event per message. Messages from the broker end at a
+  newline or a pause; events from the device are written as one line each
+  (the module publishes at the newline).
+*/
+static void
+transport_work(char *buf, size_t size)
+{
+  transport_collect();
+
+  size_t end = 0;
+  while ((end < transport_rx_len) && ('\n' != transport_rx[end])) {
+    end++;
+  }
+  int complete = (end < transport_rx_len) ||
+                 (transport_rx_len && ((HAL_GetTick() - transport_rx_last) > TRANSPORT_RX_IDLE_MS)) ||
+                 (TRANSPORT_RX_MAX == transport_rx_len);
+  if (complete) {
+    size_t n          = (end < transport_rx_len) ? end + 1 : transport_rx_len;
+    transport_rx[end] = '\0';
+    // Skip leading white space (left from a previous \r\n)
+    char *p = (char *) transport_rx;
+    while ((*p == '\r') || (*p == ' ') || (*p == '\t')) {
+      p++;
+    }
+    if ('{' == *p) {
+      vscp_event_t *pev = vscp_fwhlp_newEvent();
+      if (NULL != pev) {
+        if (VSCP_ERROR_SUCCESS == vscp_fwhlp_parse_json(pev, p)) {
+          transport_received(pev);
+        }
+        else {
+          LOGSTR("MQTT: not a VSCP JSON event\r\n");
+        }
+        vscp_fwhlp_deleteEvent(&pev);
+      }
+    }
+    transport_consume(n);
+  }
+
+  vscp_event_t *pev = NULL;
+  if (vscp_fifo_read(&ctx_link.fifoEventsOut, &pev) && (NULL != pev)) {
+    if (VSCP_ERROR_SUCCESS == vscp_fwhlp_create_json(buf, size - 2, pev)) {
+      // One message per line: the JSON must not hold newlines
+      for (char *q = buf; *q; q++) {
+        if (('\n' == *q) || ('\r' == *q)) {
+          *q = ' ';
+        }
+      }
+      strcat(buf, "\n");
+      HAL_UART_Transmit(&huart1, (uint8_t *) buf, (uint16_t) strlen(buf), HAL_MAX_DELAY);
+    }
+    vscp_fwhlp_deleteEvent(&pev);
+  }
+}
+
+#endif
+#endif /* !BLINKY_TRANSPORT_LINK */
+
 /* USER CODE END 0 */
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -925,9 +965,10 @@ int
 main(void)
 {
   /* USER CODE BEGIN 1 */
+#ifdef BLINKY_TRANSPORT_LINK
   int rv;
+#endif
   char buf[2672]; // Buffer for cmd responses and incoming data and event conversions
-  uint32_t now;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -936,8 +977,6 @@ main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  setGUID(ctx_link.guid); // Set the GUID for the device based on unique MCU ID
-
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -968,14 +1007,14 @@ main(void)
   /* Enable DWT cycle counter for sub-µs / nanosecond timestamps (nsec_now) */
   dwt_init();
 
+  /* CRC table for VSCP frame CRCs (crcFast() gives 0 for everything without it) */
+  crcInit();
+
   /* Start IWDG — 10 second timeout */
   watchdog_enable();
 
   // Switch to IRQ-driven receive for data mode
   uart1_rx_start();
-
-  // Initialize context for client connections
-  setGUID(ctx_link.guid);
 
   // Both fifos empty at startup, but we initialize them here to ensure they are ready for use
   vscp_fifo_init(&ctx_link.fifoEventsOut, BLINKY_OUTGOING_FIFO_SIZE);
@@ -990,46 +1029,46 @@ main(void)
 
   // rx_len = getWizIp20Response(buf, sizeof(buf), 10);
 
+  // Load the saved registers (the newest record in flash), or save the defaults
+  if (flash_storage_load(g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t))) {
+    LOGSTR("Registers loaded from flash.\r\n");
+  }
+  else {
+    LOGSTR("No saved registers. Using and saving the defaults.\r\n");
+    if (HAL_OK != flash_storage_save(g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t))) {
+      LOGSTR("Failed to write flash storage\r\n");
+    }
+  }
+
+  // The firmware context holds the values the protocol stack uses
+  ctx_firmware.zone     = g_registers.data.zone;
+  ctx_firmware.subzone  = g_registers.data.subzone;
+  ctx_firmware.nickname = g_registers.data.nickname;
+  memcpy(ctx_firmware.userId, g_registers.data.userdata, sizeof(ctx_firmware.userId));
+
+  // GUID from the MCU unique id, for the firmware (sent events, GUID registers) and the link
+  setGUID(ctx_firmware.guid);
+  memcpy(ctx_link.guid, ctx_firmware.guid, sizeof(ctx_link.guid));
+
   wiznet_ip20_enter_command_mode();
-  wiznet_ip20_init();
+  wiznet_ip20_init(ctx_firmware.guid);
   wiznet_ip20_show_settings();
   wiznet_ip20_save();
   wiznet_ip20_restart();
 
-  // Initialize the VSCP firmware stack with the context for our single client connection
-  vscp_frmw2_init(&ctx_firmware);
-
   // Debug print to indicate that the program has started
   LOGSTR("STM32F401 Wiznet IP20 VSCP blink demo starting\r\n");
 
-  // if (HAL_OK != flash_storage_write(0, g_registers.word_array, sizeof(register_union_t))) {
-  //     LOGSTR("Failed to write flash storage\r\n");
-  //   }
+  // Initialize the VSCP firmware stack with the context for our single client connection
+  vscp_frmw2_init(&ctx_firmware);
 
-  if (!flash_storage_is_valid()) {
+  // LED and blinking from the loaded registers
+  blinky_init(&ctx_firmware);
 
-    // Handle invalid flash storage
-    LOGSTR("Flash storage is invalid. Erase and initializing to default values.\r\n");
-
-    if (HAL_OK != flash_storage_erase()) {
-      LOGSTR("Failed to erase flash storage\r\n");
-    }
-
-    if (HAL_OK != flash_storage_write_header()) {
-      LOGSTR("Failed to initialize flash storage\r\n");
-    }
-
-    if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
-                                      g_registers.word_array,
-                                      sizeof(register_union_t) / sizeof(uint16_t))) {
-      LOGSTR("Failed to write flash storage\r\n");
-    }
-  }
-  else {
-    LOGSTR("Flash storage is valid. Reading data into registers.\r\n");
-  }
-
-  flash_storage_read(FLASH_STORAGE_DATA_OFFSET, g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t));
+#ifndef BLINKY_TRANSPORT_LINK
+  // UDP, multicast and MQTT have no connection: events are always sent
+  ctx_link.sock = VSCP_STATE_CONNECTED;
+#endif
 
   if (1) {
     LOGSTR("Current register values:\r\n");
@@ -1057,7 +1096,6 @@ main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  now = HAL_GetTick();
   while (1) {
     /* USER CODE END WHILE */
 
@@ -1072,6 +1110,9 @@ main(void)
     /* ------------------------------------------------------------------
      * State machine – scan ring buffer for control tokens (no \r\n needed)
      * ----------------------------------------------------------------*/
+#ifndef BLINKY_TRANSPORT_LINK
+    transport_work(buf, sizeof(buf));
+#else
     switch (ctx_link.sock) {
 
       case VSCP_STATE_DISCONNECTED:
@@ -1093,6 +1134,7 @@ main(void)
         if (uart1_rx_scan("<DISCONNECT>") == 0) {
           uart1_rx_consume_through("<DISCONNECT>");
           LOGSTR("Received <DISCONNECT>\n");
+          blinky_save_now(); // Save changes made in the session
           HAL_UART_Transmit(&huart1, (uint8_t *) "+OK - Disconnect.\r\n", 19, HAL_MAX_DELAY);
           // Mark as disconnected
           ctx_link.sock = VSCP_STATE_DISCONNECTED;
@@ -1144,26 +1186,13 @@ main(void)
         ctx_link.sock = VSCP_STATE_DISCONNECTED;
         break;
     }
+#endif /* BLINKY_TRANSPORT_LINK */
 
     /* Feed the watchdog every loop iteration */
     watchdog_feed();
 
-    // * * * LED BLINK * * *
-    /*
-      Toggle the state of pin 13 on GPIO port C
-      Blink if enabled in control register and if
-      blink interval is set to a non-zero value.
-      The blink interval is in milliseconds.
-    */
-    if (g_registers.data.blink_interval && (g_registers.data.control & BLINKY_CTRL_ENABLE_LED)) {
-      if ((HAL_GetTick() - now) >= g_registers.data.blink_interval) {
-        // Toggle the LED pin
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-        now = HAL_GetTick();
-        // Toggle LED active bit in status register
-        g_user_reg_status ^= BLINKY_STATUS_LED_ON;
-      }
-    }
+    // Button events, blinking, counter alarm and saving changed registers
+    blinky_work(&ctx_firmware);
   }
   /* USER CODE END 3 */
 }

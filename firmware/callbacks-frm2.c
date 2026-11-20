@@ -59,10 +59,205 @@
 #include "main.h"
 #include "blinky.h"
 #include "vscp.h"
+#include <vscp-class.h>
+#include <vscp-type.h>
 
 extern register_union_t g_registers;             // Global register storage
 extern volatile uint32_t g_user_reg_millisecond; // Millisecond counter register, updated every 1 ms
 extern volatile uint8_t g_user_reg_status;       // Status register, non-persistent
+
+static int s_led_on          = 0; // LED is lit
+static int s_blinking        = 0; // LED is blinking (actions 5/6, control bit 7, interval)
+static uint32_t s_last_blink = 0; // Time of the last blink toggle
+static int s_save_pending    = 0; // Registers changed and not yet saved
+static uint32_t s_save_time  = 0; // Time of the last change
+
+// ****************************************************************************
+//                              Blinky functions
+// ****************************************************************************
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_request_save
+//
+
+void
+blinky_request_save(void)
+{
+  s_save_pending = 1;
+  s_save_time    = HAL_GetTick();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_send_event
+//
+
+int
+blinky_send_event(vscp_frmw2_firmware_context_t *pfw,
+                  uint16_t vscp_class,
+                  uint16_t vscp_type,
+                  const uint8_t *pdata,
+                  uint8_t size)
+{
+  vscp_link_ctx_t *plink = (vscp_link_ctx_t *) pfw->puserdata;
+
+  // Only queue events for a connected client (a later client should not get old events)
+  if ((NULL == plink) || (VSCP_STATE_CONNECTED != plink->sock)) {
+    return VSCP_ERROR_NOT_CONNECTED;
+  }
+
+  vscp_event_t *pev = vscp_fwhlp_newEvent();
+  if (NULL == pev) {
+    return VSCP_ERROR_MEMORY;
+  }
+
+  if (VSCP_ERROR_SUCCESS != vscp_frmw2_setup_event(pfw, pev, size)) {
+    vscp_fwhlp_deleteEvent(&pev);
+    return VSCP_ERROR_MEMORY;
+  }
+
+  pev->vscp_class = vscp_class;
+  pev->vscp_type  = vscp_type;
+  if (size && (NULL != pdata)) {
+    memcpy(pev->pdata, pdata, size);
+  }
+
+  if (!vscp_fifo_write(&plink->fifoEventsOut, pev)) {
+    plink->statistics.cntOverruns++;
+    vscp_fwhlp_deleteEvent(&pev);
+    return VSCP_ERROR_FIFO_FULL;
+  }
+
+  plink->statistics.cntTransmitFrames++;
+  plink->statistics.cntTransmitData += size;
+  return VSCP_ERROR_SUCCESS;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_set_led
+//
+
+void
+blinky_set_led(vscp_frmw2_firmware_context_t *pfw, int on, int report)
+{
+  int changed = (on ? 1 : 0) != s_led_on;
+  s_led_on    = on ? 1 : 0;
+
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, s_led_on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  // The button interrupt changes bit 0 of the same register
+  __disable_irq();
+  if (s_led_on) {
+    g_user_reg_status |= BLINKY_STATUS_LED_ON;
+  }
+  else {
+    g_user_reg_status &= ~BLINKY_STATUS_LED_ON;
+  }
+  __enable_irq();
+
+  // CLASS1.INFORMATION ON/OFF for changes made from outside (not for each blink)
+  if (report && changed) {
+    uint8_t data[3] = { 0, g_registers.data.zone, g_registers.data.subzone }; // index, zone, subzone
+    blinky_send_event(pfw,
+                      VSCP_CLASS1_INFORMATION,
+                      s_led_on ? VSCP_TYPE_INFORMATION_ON : VSCP_TYPE_INFORMATION_OFF,
+                      data,
+                      sizeof(data));
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_init
+//
+
+void
+blinky_init(vscp_frmw2_firmware_context_t *pfw)
+{
+  blinky_set_led(pfw, 0, 0);
+  // Blink from start when the LED is enabled and an interval is set
+  s_blinking   = (g_registers.data.control & BLINKY_CTRL_ENABLE_LED) && (0 != g_registers.data.blink_interval);
+  s_last_blink = HAL_GetTick();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_work
+//
+
+void
+blinky_work(vscp_frmw2_firmware_context_t *pfw)
+{
+  // * * * Button * * *
+  // The interrupt handler only records presses/releases; the events are made here
+  __disable_irq();
+  uint8_t button = g_button_events;
+  g_button_events = 0;
+  __enable_irq();
+
+  if (button && (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN)) {
+    if (button & BLINKY_BUTTON_PRESSED) {
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_TURNON) {
+        // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.control?id=type5
+        uint8_t data[3] = { g_registers.data.button_zero_opt_byte,
+                            g_registers.data.button_zone,
+                            g_registers.data.button_subzone };
+        blinky_send_event(pfw, VSCP_CLASS1_CONTROL, VSCP_TYPE_CONTROL_TURNON, data, sizeof(data));
+      }
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_START) {
+        // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type25
+        uint8_t data[3] = { 0, g_registers.data.button_zone, g_registers.data.button_subzone };
+        blinky_send_event(pfw, VSCP_CLASS1_INFORMATION, VSCP_TYPE_INFORMATION_START, data, sizeof(data));
+      }
+    }
+    if (button & BLINKY_BUTTON_RELEASED) {
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_TURNON) {
+        // TURN-OFF on release goes with TURN-ON on press (bit 3)
+        // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.control?id=type6
+        uint8_t data[3] = { g_registers.data.button_zero_opt_byte,
+                            g_registers.data.button_zone,
+                            g_registers.data.button_subzone };
+        blinky_send_event(pfw, VSCP_CLASS1_CONTROL, VSCP_TYPE_CONTROL_TURNOFF, data, sizeof(data));
+      }
+      if (g_registers.data.control & BLINKY_CTRL_ENABLE_BTN_STOP) {
+        // https://grodansparadis.github.io/vscp-doc-spec/#/./class1.information?id=type24
+        uint8_t data[3] = { 0, g_registers.data.button_zone, g_registers.data.button_subzone };
+        blinky_send_event(pfw, VSCP_CLASS1_INFORMATION, VSCP_TYPE_INFORMATION_STOP, data, sizeof(data));
+      }
+    }
+  }
+
+  // * * * Blink * * *
+  if (s_blinking && (g_registers.data.control & BLINKY_CTRL_ENABLE_LED) && g_registers.data.blink_interval &&
+      ((HAL_GetTick() - s_last_blink) >= g_registers.data.blink_interval)) {
+    s_last_blink = HAL_GetTick();
+    blinky_set_led(pfw, !s_led_on, 0);
+  }
+
+  // * * * Millisecond counter limit (alarm bit 7) * * *
+  if (g_counter_wrapped) {
+    g_counter_wrapped = 0;
+    pfw->alarm_status |= BLINKY_ALARM_COUNTER_LIMIT;
+  }
+
+  // * * * Save changed registers * * *
+  if (s_save_pending && ((HAL_GetTick() - s_save_time) >= BLINKY_SAVE_DELAY_MS)) {
+    blinky_save_now();
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// blinky_save_now
+//
+
+void
+blinky_save_now(void)
+{
+  if (!s_save_pending) {
+    return;
+  }
+  s_save_pending = 0;
+  watchdog_feed(); // An erase of the sector (when it is full) takes about a second
+  if (HAL_OK != flash_storage_save(g_registers.word_array, sizeof(register_union_t) / sizeof(uint16_t))) {
+    LOGSTR("Failed to save the registers to flash\r\n");
+  }
+}
 
 // ****************************************************************************
 //                        VSCP protocol callbacks
@@ -75,11 +270,8 @@ extern volatile uint8_t g_user_reg_status;       // Status register, non-persist
 static void
 update_persistent_storage(void)
 {
-  if (HAL_OK != flash_storage_write(FLASH_STORAGE_DATA_OFFSET,
-                                    g_registers.word_array,
-                                    sizeof(register_union_t) / sizeof(uint16_t))) {
-    LOGSTR("Failed to write flash storage\r\n");
-  }
+  // Saved from blinky_work() a little later, so a burst of writes is one flash record
+  blinky_request_save();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -187,56 +379,55 @@ vscp_frmw2_callback_dm_action(vscp_frmw2_firmware_context_t *pctx,
                               uint8_t action,
                               const uint8_t *pparam)
 {
+  const uint8_t param = (NULL != pparam) ? pparam[0] : 0;
+
+  if (BLINKY_ACTION_CLR_COUNTER == action) {
+    g_user_reg_millisecond = 0;
+    return VSCP_ERROR_SUCCESS;
+  }
+
+  // The LED actions work when the LED is enabled in the control register
+  if (!(g_registers.data.control & BLINKY_CTRL_ENABLE_LED)) {
+    return VSCP_ERROR_SUCCESS;
+  }
+
   switch (action) {
     case BLINKY_ACTION_NOOP:
-      // Do nothing
       break;
 
     case BLINKY_ACTION_CTRL_LED_STATE:
-      if (pparam[0] == BLINKY_ARG_CTRL_LED_OFF) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-        g_user_reg_status &= ~BLINKY_STATUS_LED_ON;
+      s_blinking = 0;
+      if (BLINKY_ARG_CTRL_LED_TOGGLE == param) {
+        blinky_set_led(pctx, !s_led_on, 1);
       }
-      else if (pparam[0] == BLINKY_ARG_CTRL_LED_ON) {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-        g_user_reg_status |= BLINKY_STATUS_LED_ON;
-      }
-      else if (pparam[0] == BLINKY_ARG_CTRL_LED_TOGGLE) {
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-        g_user_reg_status ^= BLINKY_STATUS_LED_ON;
+      else {
+        blinky_set_led(pctx, (BLINKY_ARG_CTRL_LED_OFF != param), 1);
       }
       break;
 
     case BLINKY_ACTION_CTRL_LED_ON:
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-      g_user_reg_status |= BLINKY_STATUS_LED_ON;
+      s_blinking = 0;
+      blinky_set_led(pctx, 1, 1);
       break;
 
     case BLINKY_ACTION_CTRL_LED_OFF:
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-      g_user_reg_status &= ~BLINKY_STATUS_LED_ON;
+      s_blinking = 0;
+      blinky_set_led(pctx, 0, 1);
       break;
 
     case BLINKY_ACTION_CTRL_LED_TOGGLE:
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-      g_user_reg_status ^= BLINKY_STATUS_LED_ON;
+      s_blinking = 0;
+      blinky_set_led(pctx, !s_led_on, 1);
       break;
 
     case BLINKY_ACTION_CTRL_LED_START_BLINK:
-      // Start blinking with interval specified in pparam[0] and pparam[1]
-      g_registers.data.blink_interval = ((uint16_t) pparam[0] << 8) | pparam[1];
-      g_registers.data.control |= BLINKY_CTRL_ENABLE_LED;
-      update_persistent_storage();
+      // Blink with the interval in registers 4-5 (an interval of zero does not blink)
+      s_blinking   = (0 != g_registers.data.blink_interval);
+      s_last_blink = HAL_GetTick();
       break;
 
     case BLINKY_ACTION_CTRL_LED_STOP_BLINK:
-      // Stop blinking
-      g_registers.data.control &= ~BLINKY_CTRL_ENABLE_LED;
-      update_persistent_storage();
-      break;
-
-    case BLINKY_ACTION_CLR_COUNTER:
-      g_user_reg_millisecond = 0;
+      s_blinking = 0;
       break;
 
     default:
@@ -367,12 +558,13 @@ vscp_frmw2_callback_get_ip_addr(vscp_frmw2_firmware_context_t *pctx, uint8_t *ip
 int
 vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t *pval)
 {
-  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
-  // here.
-
-  // Check pointers (pdata allowed to be NULL)
   if (NULL == pval) {
     return VSCP_ERROR_INVALID_POINTER;
+  }
+
+  // All user registers are on page 0
+  if (0 != page) {
+    return VSCP_ERROR_PARAMETER;
   }
 
   if (BLINKY_REG_DEVICE_ZONE == reg) {
@@ -381,7 +573,6 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
   else if (BLINKY_REG_DEVICE_SUBZONE == reg) {
     *pval = g_registers.data.subzone;
   }
-
   else if (BLINKY_REG_DEVICE_STATUS == reg) {
     *pval = g_user_reg_status; // Non persistent
   }
@@ -389,19 +580,19 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
     *pval = g_registers.data.control;
   }
   else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
-    *pval = g_registers.data.blink_interval >> 8 & 0xff;
+    *pval = (g_registers.data.blink_interval >> 8) & 0xff;
   }
   else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
     *pval = g_registers.data.blink_interval & 0xff;
   }
   else if (BLINKY_REG_DEVICE_COUNTER_0 == reg) {
-    *pval = g_user_reg_millisecond >> 24 & 0xff;
+    *pval = (g_user_reg_millisecond >> 24) & 0xff;
   }
   else if (BLINKY_REG_DEVICE_COUNTER_1 == reg) {
-    *pval = g_user_reg_millisecond >> 16 & 0xff;
+    *pval = (g_user_reg_millisecond >> 16) & 0xff;
   }
   else if (BLINKY_REG_DEVICE_COUNTER_2 == reg) {
-    *pval = g_user_reg_millisecond >> 8 & 0xff;
+    *pval = (g_user_reg_millisecond >> 8) & 0xff;
   }
   else if (BLINKY_REG_DEVICE_COUNTER_3 == reg) {
     *pval = g_user_reg_millisecond & 0xff;
@@ -415,8 +606,10 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
   else if (BLINKY_REG_DEVICE_BUTTON_SUBZONE == reg) {
     *pval = g_registers.data.button_subzone;
   }
+  else if ((reg >= BLINKY_REG_DM_START) && (reg < BLINKY_REG_DM_START + sizeof(g_registers.data.dm))) {
+    *pval = g_registers.data.dm[reg - BLINKY_REG_DM_START];
+  }
   else {
-    // Invalid register
     return VSCP_ERROR_PARAMETER;
   }
 
@@ -430,38 +623,49 @@ vscp_frmw2_callback_read_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t 
 int
 vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t page, uint32_t reg, uint8_t val)
 {
-  // We just have one page so we ignore the page parameter. In a more complex device, you would handle different pages
-  // here.
+  // All user registers are on page 0
+  if (0 != page) {
+    return VSCP_ERROR_PARAMETER;
+  }
 
   if (BLINKY_REG_DEVICE_ZONE == reg) {
     g_registers.data.zone = val;
+    pctx->zone            = val; // Used by the decision matrix zone match
     update_persistent_storage();
   }
   else if (BLINKY_REG_DEVICE_SUBZONE == reg) {
     g_registers.data.subzone = val;
+    pctx->subzone            = val;
     update_persistent_storage();
   }
   else if (BLINKY_REG_DEVICE_STATUS == reg) {
-    // Only the LD can be set/reset
-    g_user_reg_status |= val & BLINKY_STATUS_LED_ON; // Non persistent
-    // Update the LED state based on the status register
-    if (g_user_reg_status & BLINKY_STATUS_LED_ON) {
-      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET); // Turn on LED
-    }
-    else {
-      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET); // Turn off LED
+    // Bit 1 turns the LED on/off (when the LED is enabled); the button bit is read only
+    if (g_registers.data.control & BLINKY_CTRL_ENABLE_LED) {
+      s_blinking = 0;
+      blinky_set_led(pctx, (val & BLINKY_STATUS_LED_ON) ? 1 : 0, 1);
     }
   }
   else if (BLINKY_REG_DEVICE_CONTROL == reg) {
+    uint8_t old              = g_registers.data.control;
     g_registers.data.control = val;
+    // Enabling the LED starts blinking (if the interval is set), disabling stops it
+    if (!(old & BLINKY_CTRL_ENABLE_LED) && (val & BLINKY_CTRL_ENABLE_LED)) {
+      s_blinking   = (0 != g_registers.data.blink_interval);
+      s_last_blink = HAL_GetTick();
+    }
+    else if (!(val & BLINKY_CTRL_ENABLE_LED)) {
+      s_blinking = 0;
+    }
     update_persistent_storage();
   }
   else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_MSB == reg) {
     g_registers.data.blink_interval = (g_registers.data.blink_interval & 0x00ff) | ((uint16_t) val << 8);
+    s_blinking                      = (0 != g_registers.data.blink_interval); // Zero stops blinking
     update_persistent_storage();
   }
   else if (BLINKY_REG_DEVICE_BLINK_INTERVAL_LSB == reg) {
     g_registers.data.blink_interval = (g_registers.data.blink_interval & 0xff00) | val;
+    s_blinking                      = (0 != g_registers.data.blink_interval);
     update_persistent_storage();
   }
   else if (BLINKY_REG_DEVICE_BUTTON_BYTE0 == reg) {
@@ -476,14 +680,15 @@ vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t
     g_registers.data.button_subzone = val;
     update_persistent_storage();
   }
-  // Writing to the counter reset it
-  else if (BLINKY_REG_DEVICE_COUNTER_0 == reg || BLINKY_REG_DEVICE_COUNTER_1 == reg || BLINKY_REG_DEVICE_COUNTER_2 == reg ||
-           BLINKY_REG_DEVICE_COUNTER_3 == reg) {
-    g_user_reg_millisecond = 0; // Reset the millisecond counter register;
+  // Writing any of the counter registers clears the counter (not persistent)
+  else if ((BLINKY_REG_DEVICE_COUNTER_0 <= reg) && (BLINKY_REG_DEVICE_COUNTER_3 >= reg)) {
+    g_user_reg_millisecond = 0;
+  }
+  else if ((reg >= BLINKY_REG_DM_START) && (reg < BLINKY_REG_DM_START + sizeof(g_registers.data.dm))) {
+    g_registers.data.dm[reg - BLINKY_REG_DM_START] = val;
     update_persistent_storage();
   }
   else {
-    // Invalid register
     return VSCP_ERROR_PARAMETER;
   }
 
@@ -497,8 +702,14 @@ vscp_frmw2_callback_write_user_reg(vscp_frmw2_firmware_context_t *pctx, uint16_t
 int
 vscp_frmw2_callback_stdreg_change(vscp_frmw2_firmware_context_t *pctx, uint32_t stdreg)
 {
+  // The firmware keeps the user id and nickname in its context; copy them
+  // to the register storage that is saved in flash
   if (VSCP_STD_REGISTER_USER_ID == stdreg) {
-    // Update persistent values
+    memcpy(g_registers.data.userdata, pctx->userId, sizeof(g_registers.data.userdata));
+    update_persistent_storage();
+  }
+  else if ((VSCP_STD_REGISTER_NICKNAME_ID_LSB == stdreg) || (VSCP_STD_REGISTER_NICKNAME_ID_MSB == stdreg)) {
+    g_registers.data.nickname = pctx->nickname;
     update_persistent_storage();
   }
 
@@ -513,6 +724,12 @@ int
 vscp_frmw2_callback_restore_defaults(vscp_frmw2_firmware_context_t *pctx)
 {
   resetRegisters();
+  pctx->zone     = g_registers.data.zone;
+  pctx->subzone  = g_registers.data.subzone;
+  pctx->nickname = g_registers.data.nickname;
+  memcpy(pctx->userId, g_registers.data.userdata, sizeof(g_registers.data.userdata));
+  blinky_init(pctx);
+  update_persistent_storage();
   return VSCP_ERROR_SUCCESS;
 }
 

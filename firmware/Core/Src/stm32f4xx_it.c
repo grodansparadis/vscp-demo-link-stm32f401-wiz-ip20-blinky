@@ -55,6 +55,7 @@
 /* USER CODE BEGIN 0 */
 extern volatile uint32_t msTicks; /* Declare the msTicks variable as extern to be used in this file */
 extern volatile uint32_t g_user_reg_millisecond; /* Millisecond counter register, updated every 1 ms */
+extern volatile uint8_t g_counter_wrapped;       /* Set when the millisecond counter wraps */
 extern register_union_t g_registers; /* Global register storage */
 /* USER CODE END 0 */
 
@@ -241,7 +242,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM2) {
     msTicks++;
     if (g_registers.data.control & BLINKY_CTRL_ENABLE_MS_COUNTER) {
-      g_user_reg_millisecond++; /* Update the millisecond counter register */
+      if (0 == ++g_user_reg_millisecond) { /* Update the millisecond counter register */
+        g_counter_wrapped = 1;              /* Counter limit reached: alarm bit 7 (blinky_work) */
+      }
     }
   }
   else if (htim->Instance == TIM3) {

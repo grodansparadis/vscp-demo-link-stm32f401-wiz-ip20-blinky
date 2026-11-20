@@ -132,6 +132,49 @@ HAL_StatusTypeDef flash_storage_write(uint32_t offset, const uint16_t *data, siz
  */
 void flash_storage_read(uint32_t offset, uint16_t *data, size_t count);
 
+/*
+ * Record storage
+ * --------------
+ * Flash bits can only go from 1 to 0 without erasing the sector, and the
+ * 128 KB sector takes about a second to erase and endures ~10 000 erases.
+ * So the configuration is not rewritten in place: every save appends a
+ * record after the previous one, and the newest valid record is the
+ * configuration. The sector is only erased when it is full.
+ *
+ *   word 0       FLASH_STORAGE_RECORD_MAGIC (written last)
+ *   word 1       number of data words
+ *   word 2..     data
+ *   last word    checksum
+ *
+ * A record that was not completely written (power loss) has no magic or
+ * a wrong checksum and is skipped.
+ */
+
+#define FLASH_STORAGE_RECORD_MAGIC 0x5AA5U
+
+/**
+ * @brief  Load the newest saved configuration.
+ *
+ * If no record is found but the sector holds the configuration in the
+ * old layout (header + data at FLASH_STORAGE_DATA_OFFSET), that is loaded.
+ *
+ * @param  data   Destination for the configuration.
+ * @param  count  Number of half-words.
+ * @return true if a configuration was loaded, false if none was found
+ *         (data is not changed).
+ */
+bool flash_storage_load(uint16_t *data, size_t count);
+
+/**
+ * @brief  Save the configuration as a new record (erases the sector when
+ *         it is full).
+ *
+ * @param  data   The configuration.
+ * @param  count  Number of half-words.
+ * @return HAL_OK on success.
+ */
+HAL_StatusTypeDef flash_storage_save(const uint16_t *data, size_t count);
+
 #ifdef __cplusplus
 }
 #endif

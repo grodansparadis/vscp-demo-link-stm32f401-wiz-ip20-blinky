@@ -96,10 +96,11 @@ typedef struct {
 #define BLINKY_DEFAULT_REG_BUTTON_ZONE     0u    // Default button zone for the device
 #define BLINKY_DEFAULT_REG_BUTTON_SUBZONE  0u    // Default button subzone for the device
 #define BLINKY_DEFAULT_REG_BUTTON_OPT_BYTE 0u    // Default button option byte for the device
-#define BLINKY_DEFAULT_REG_BLINK_INTERVAL  1000u // Default blink interval in milliseconds
+#define BLINKY_DEFAULT_REG_BLINK_INTERVAL  500u  // Default blink interval in milliseconds (MDF: 0x01F4)
+// Default control register as in the MDF: 0b11001110 (the millisecond counter is off)
 #define BLINKY_DEFAULT_REG_CONTROL                                                                                     \
   (BLINKY_CTRL_ENABLE_LED | BLINKY_CTRL_ENABLE_BTN | BLINKY_CTRL_ENABLE_BTN_TURNON | BLINKY_CTRL_ENABLE_BTN_START |    \
-   BLINKY_CTRL_ENABLE_BTN_STOP | BLINKY_CTRL_ENABLE_MS_COUNTER)
+   BLINKY_CTRL_ENABLE_BTN_STOP)
 #define BLINKY_DEFAULT_REG_NICKNAME 0x10u // Default nickname for the device
 
 // Actions
@@ -120,6 +121,58 @@ typedef struct {
 #define BLINKY_ARG_CTRL_LED_ON     1
 #define BLINKY_ARG_CTRL_LED_TOGGLE 2
 
+// Decision matrix: four Level I rows of eight bytes at page 0, offset 0x60 (MDF)
+#define BLINKY_REG_DM_START 0x60
+#define BLINKY_DM_ROWS      4
+#define BLINKY_DM_ROW_SIZE  8
+
+// Alarm status bit set when the millisecond counter wraps (MDF alarm bit 7)
+#define BLINKY_ALARM_COUNTER_LIMIT 0x80u
+
+// Changed configuration is saved this long after the last change, so a
+// burst of register writes is saved as one flash record
+#define BLINKY_SAVE_DELAY_MS 1000u
+
+// Button events from the interrupt handler, handled in blinky_work()
+#define BLINKY_BUTTON_PRESSED  0x01u
+#define BLINKY_BUTTON_RELEASED 0x02u
+
+extern volatile uint8_t g_button_events;   // BLINKY_BUTTON_PRESSED/RELEASED, set by the EXTI handler
+extern volatile uint8_t g_counter_wrapped; // Set by the 1 ms timer when the counter wraps to zero
+
+/*
+  Blinky functionality (callbacks-frm2.c). pfw is the Level II firmware
+  context; its user data is the link protocol context.
+*/
+
+// Set up the LED and blinking from the registers after they are loaded
+void
+blinky_init(vscp_frmw2_firmware_context_t *pfw);
+
+// Call from the main loop: button events, blinking, counter alarm, saving
+void
+blinky_work(vscp_frmw2_firmware_context_t *pfw);
+
+// Turn the LED on/off. With report set, CLASS1.INFORMATION ON/OFF is sent if it changed.
+void
+blinky_set_led(vscp_frmw2_firmware_context_t *pfw, int on, int report);
+
+// Queue an event for the connected client (dropped when no client is connected)
+int
+blinky_send_event(vscp_frmw2_firmware_context_t *pfw,
+                  uint16_t vscp_class,
+                  uint16_t vscp_type,
+                  const uint8_t *pdata,
+                  uint8_t size);
+
+// Save the registers to flash a little later (BLINKY_SAVE_DELAY_MS)
+void
+blinky_request_save(void);
+
+// Save changed registers now (when a session ends, before slow work)
+void
+blinky_save_now(void);
+
 /*
   ----------------------------------------------------------------------------
                                    Blinky
@@ -127,31 +180,38 @@ typedef struct {
 */
 
 /*!
-  Select **one **of the following modes for the blinky demo. This will determine how the
-  blinky demo is built and will operate. You can only select one mode at a time. If you select
-  more than one mode, you will get a compile error. If you do not select any mode,
-  you will get a compile error.
+  Transport (one of them). Select it with the CMake option BLINKY_MODE:
+
+    cmake -B build -DBLINKY_MODE=TCP_SERVER   (default)
+                   -DBLINKY_MODE=TCP_CLIENT
+                   -DBLINKY_MODE=UDP
+                   -DBLINKY_MODE=MULTICAST
+                   -DBLINKY_MODE=MQTT
+
+  BLINKY_MODE_TCP_SERVER  VSCP link protocol (TCP/IP), the device is the server (port 9598).
+  BLINKY_MODE_TCP_CLIENT  VSCP link protocol, the device connects to BLINKY_REMOTE_HOST:BLINKY_REMOTE_PORT
+                          and is the link protocol server on that connection.
+  BLINKY_MODE_UDP         VSCP frames (version 0, not encrypted) over UDP: sent to
+                          BLINKY_REMOTE_HOST:BLINKY_REMOTE_PORT, received on BLINKY_LOCAL_PORT.
+  BLINKY_MODE_MULTICAST   VSCP frames to/from the VSCP multicast group 224.0.23.158, port 44444.
+  BLINKY_MODE_MQTT        VSCP JSON events, one per MQTT message, published on vscp/<guid>/out and
+                          received on vscp/<guid>/in, broker BLINKY_REMOTE_HOST:BLINKY_REMOTE_PORT.
 */
 
-// VSCP TCP/IP link protocol server mode. The device will listen for incoming TCP/IP
-// connections and respond to them. This is the default mode for the blinky demo.
+#if !defined(BLINKY_MODE_TCP_SERVER) && !defined(BLINKY_MODE_TCP_CLIENT) && !defined(BLINKY_MODE_UDP) &&            \
+  !defined(BLINKY_MODE_MULTICAST) && !defined(BLINKY_MODE_MQTT)
 #define BLINKY_MODE_TCP_SERVER
+#endif
 
-// VSCP TCP/IP link protocol client mode. The device will connect to a TCP/IP
-// server and send data to it.
-// #define BLINKY_MODE_TCP_CLIENT
+#if (defined(BLINKY_MODE_TCP_SERVER) + defined(BLINKY_MODE_TCP_CLIENT) + defined(BLINKY_MODE_UDP) +                    \
+     defined(BLINKY_MODE_MULTICAST) + defined(BLINKY_MODE_MQTT)) != 1
+#error "Select exactly one BLINKY_MODE_..."
+#endif
 
-// VSCP UDP link protocol mode. The device will listen for
-// incoming UDP packets and respond to them.
-// #define BLINKY_MODE_UDP
-
-// VSCP multicast link protocol mode.
-// The device will listen for incoming multicast packets and respond to them.
-// #define BLINKY_MODE_MULTICAST
-
-// VSCP MQTT link protocol mode.
-// The device will connect to an MQTT broker and publish/subscribe to topics.
-// #define BLINKY_MODE_MQTT
+// The link protocol (text lines) is used in the TCP modes
+#if defined(BLINKY_MODE_TCP_SERVER) || defined(BLINKY_MODE_TCP_CLIENT)
+#define BLINKY_TRANSPORT_LINK 1
+#endif
 
 // Uncomment to get debug printouts on USART2
 // #define VSCP_ENABLE_BLINKY_DEBUG

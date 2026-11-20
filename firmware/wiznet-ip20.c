@@ -44,6 +44,8 @@
 #include "gpio.h"
 
 #include <stdint.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include <blinky.h>
 #include "wiznet-ip20.h"
@@ -252,144 +254,76 @@ wiznet_ip20_send_command(const char *cmd, char *response_buf, size_t response_bu
  * @retval VSCP_ERROR_SUCCESS if initialization was successful, VSCP error code on error.
  */
 
-int
-wiznet_ip20_init(void)
+// Send one command (formatted) to the module in command mode
+static void
+wiz_cmd(const char *fmt, ...)
 {
+  char cmd[160];
+  va_list args;
+  va_start(args, fmt);
+  int len = vsnprintf(cmd, sizeof(cmd), fmt, args);
+  va_end(args);
+  if (len > 0) {
+    HAL_UART_Transmit(&huart1, (uint8_t *) cmd, (len < (int) sizeof(cmd)) ? len : sizeof(cmd) - 1, HAL_MAX_DELAY);
+  }
+}
 
-  // Set IP address
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_IP, strlen(WIZ_IP20_IP), HAL_MAX_DELAY);
+int
+wiznet_ip20_init(const uint8_t *guid)
+{
+  // Network
+  wiz_cmd(WIZ_IP20_IP);
+  wiz_cmd(WIZ_IP20_NETMASK);
+  wiz_cmd(WIZ_IP20_GATEWAY);
+  wiz_cmd(WIZ_IP20_DNS);
+  wiz_cmd(WIZ_IP20_IP_ALLOCATION_METHOD);
 
-  // Set netmask
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_NETMASK, strlen(WIZ_IP20_NETMASK), HAL_MAX_DELAY);
-
-  // Set gateway
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_GATEWAY, strlen(WIZ_IP20_GATEWAY), HAL_MAX_DELAY);
-
-  // Set DNS server
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_DNS, strlen(WIZ_IP20_DNS), HAL_MAX_DELAY);
-
-  // Set IP allocation mode
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_IP_ALLOCATION_METHOD,
-                    strlen(WIZ_IP20_IP_ALLOCATION_METHOD),
-                    HAL_MAX_DELAY);
-
-  // Set port
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_PORT, strlen(WIZ_IP20_PORT), HAL_MAX_DELAY);
-
-  // Set operation mode
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_OPERATION_MODE, strlen(WIZ_IP20_OPERATION_MODE), HAL_MAX_DELAY);
-
-  // Set connect string
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_CONNECT_STR, strlen(WIZ_IP20_LINK_CONNECT_STR), HAL_MAX_DELAY);
-
-  // Set disconnect string
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_DISCONNECT_STR,
-                    strlen(WIZ_IP20_LINK_DISCONNECT_STR),
-                    HAL_MAX_DELAY);
-
-  // Set Ethernet connect string
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_ETH_CONNECT_STR,
-                    strlen(WIZ_IP20_LINK_ETH_CONNECT_STR),
-                    HAL_MAX_DELAY);
-
-#if defined(BLINKY_MODE_TCP_CLIENT) || defined(BLINKY_MODE_MQTT)
-  // Remote host
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_REMOTE_HOST_IP, strlen(WIZ_IP20_REMOTE_HOST_IP), HAL_MAX_DELAY);
-
-  // Remote port
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_REMOTE_HOST_PORT, strlen(WIZ_IP20_REMOTE_HOST_PORT), HAL_MAX_DELAY);
-
-  // TCP client reconnect interval
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_CLIENT_RECONNECT,
-                    strlen(WIZ_IP20_LINK_CLIENT_RECONNECT),
-                    HAL_MAX_DELAY);
+  // Transport
+  wiz_cmd(WIZ_IP20_OPERATION_MODE);
+  wiz_cmd("LP%u\r\n", (unsigned) BLINKY_LOCAL_PORT);
+#ifndef BLINKY_MODE_TCP_SERVER
+  wiz_cmd("RH%s\r\n", BLINKY_REMOTE_HOST); // Remote host (RI is the reconnect interval)
+  wiz_cmd("RP%u\r\n", (unsigned) BLINKY_REMOTE_PORT);
+  wiz_cmd(WIZ_IP20_LINK_CLIENT_RECONNECT);
 #endif
 
-  // Data packing time in milliseconds
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_TIME, strlen(WIZ_IP20_LINK_PACKING_TIME), HAL_MAX_DELAY);
+  // Connection strings written to the serial port (TCP modes only)
+  wiz_cmd(WIZ_IP20_LINK_CONNECT_STR);
+  wiz_cmd(WIZ_IP20_LINK_DISCONNECT_STR);
+  wiz_cmd(WIZ_IP20_LINK_ETH_CONNECT_STR);
 
-  // Data packing size in bytes (0 not used)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_SIZE, strlen(WIZ_IP20_LINK_PACKING_SIZE), HAL_MAX_DELAY);
+  // Packing of serial data
+  wiz_cmd(WIZ_IP20_LINK_PACKING_TIME);
+  wiz_cmd(WIZ_IP20_LINK_PACKING_SIZE);
+  wiz_cmd(WIZ_IP20_LINK_PACKING_CHAR);
 
-  // Data packing char (0 not used, 0x0a = newline) The designated character is not included in data.
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_PACKING_CHAR, strlen(WIZ_IP20_LINK_PACKING_CHAR), HAL_MAX_DELAY);
+  // Connection
+  wiz_cmd(WIZ_IP20_LINK_INACTIVITY);
+  wiz_cmd(WIZ_IP20_LINK_KEEP_ALIVE);
+  wiz_cmd(WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL);
+  wiz_cmd(WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL);
+  wiz_cmd(WIZ_IP20_LINK_SSL_CLOSE);
+  wiz_cmd(WIZ_IP20_TCPSRV_ENABLE_PASSWORD);
+  wiz_cmd(WIZ_IP20_DEBUG_ENABLE);
 
-  // Inactivity time in seconds (0 not used)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_INACTIVITY, strlen(WIZ_IP20_LINK_INACTIVITY), HAL_MAX_DELAY);
-
-  // Retry count (0 not used)
-  // HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_RETRY_CNT, strlen(WIZ_IP20_LINK_RETRY_CNT), HAL_MAX_DELAY);
-
-  // Keep alive (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE, strlen(WIZ_IP20_LINK_KEEP_ALIVE), HAL_MAX_DELAY);
-
-  // Keep alive interval in milliseconds
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL,
-                    strlen(WIZ_IP20_LINK_KEEP_ALIVE_INTERVAL),
-                    HAL_MAX_DELAY);
-
-  // Keep alive retry interval in milliseconds
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL,
-                    strlen(WIZ_IP20_LINK_KEEP_ALIVE_RETRY_INTERVAL),
-                    HAL_MAX_DELAY);
-
-  // SSL close (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_LINK_SSL_CLOSE, strlen(WIZ_IP20_LINK_SSL_CLOSE), HAL_MAX_DELAY);
-
-  // Password for TCP server (0 not used)
-  HAL_UART_Transmit(&huart1,
-                    (uint8_t *) WIZ_IP20_TCPSRV_ENABLE_PASSWORD,
-                    strlen(WIZ_IP20_TCPSRV_ENABLE_PASSWORD),
-                    HAL_MAX_DELAY);
-  /*
-    #Password for TCP server (max 8 characters)
-    HAL_UART_Transmit(&huart1,
-                       (uint8_t *) WIZ_IP20_TCPSRV_SET_PASSWORD,
-                       strlen(WIZ_IP20_TCPSRV_SET_PASSWORD),
-                       HAL_MAX_DELAY);
-
-    // Search id code
-    HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_SEARCH_ID_CODE, strlen(WIZ_IP20_SEARCH_ID_CODE), HAL_MAX_DELAY);
-  */
-
-  // Enable debug messages (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_DEBUG_ENABLE, strlen(WIZ_IP20_DEBUG_ENABLE), HAL_MAX_DELAY);
-
-  // MQTT settings (not used here)
-#ifdef BLINKY_DEMO_MODE_MQTT
-  // QUmqtt_user\r\n MQTT username (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_USER, strlen(WIZ_IP20_MQTT_USER), HAL_MAX_DELAY);
-
-  // QPmqtt_password\r\n MQTT password (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_PASSWORD, strlen(WIZ_IP20_MQTT_PASSWORD), HAL_MAX_DELAY);
-
-  // QCmqtt_client_id\r\n MQTT client ID (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_CLIENT_ID, strlen(WIZ_IP20_MQTT_CLIENT_ID), HAL_MAX_DELAY);
-
-  // QK0\r\n MQTT keep alive (0 not used, 1 = enabled)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_KEEP_ALIVE, strlen(WIZ_IP20_MQTT_KEEP_ALIVE), HAL_MAX_DELAY);
-
-  // QQ0\r\n MQTT QoS (0, 1, or 2)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_QOS, strlen(WIZ_IP20_MQTT_QOS), HAL_MAX_DELAY);
-
-  // Publish topic\r\n MQTT publish topic (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_PUB_TOPIC, strlen(WIZ_IP20_MQTT_PUB_TOPIC), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 1 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC0, strlen(WIZ_IP20_MQTT_SUB_TOPIC0), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 2 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC1, strlen(WIZ_IP20_MQTT_SUB_TOPIC1), HAL_MAX_DELAY);
-
-  // MQTT subscribe topic 3 (max 128 characters)
-  HAL_UART_Transmit(&huart1, (uint8_t *) WIZ_IP20_MQTT_SUB_TOPIC2, strlen(WIZ_IP20_MQTT_SUB_TOPIC2), HAL_MAX_DELAY);
-
+#ifdef BLINKY_MODE_MQTT
+  // Topics vscp/<guid>/out (published) and vscp/<guid>/in (subscribed), GUID
+  // without colons so it is one topic level
+  char guidstr[33] = "";
+  for (int i = 0; i < 16; i++) {
+    snprintf(guidstr + 2 * i, 3, "%02X", (NULL != guid) ? guid[i] : 0);
+  }
+  wiz_cmd("QU%s\r\n", BLINKY_MQTT_USER);
+  wiz_cmd("QP%s\r\n", BLINKY_MQTT_PASSWORD);
+  wiz_cmd("QCblinky-%s\r\n", guidstr);           // Client id
+  wiz_cmd("QK%u\r\n", (unsigned) BLINKY_MQTT_KEEP_ALIVE);
+  wiz_cmd("QO%u\r\n", (unsigned) BLINKY_MQTT_QOS); // QoS
+  wiz_cmd("PUvscp/%s/out\r\n", guidstr);          // Publish topic
+  wiz_cmd("U0vscp/%s/in\r\n", guidstr);           // Subscribe topic 1
+  wiz_cmd("U1\r\n");                              // Subscribe topics 2 and 3 not used
+  wiz_cmd("U2\r\n");
+#else
+  (void) guid;
 #endif
 
   return VSCP_ERROR_SUCCESS;

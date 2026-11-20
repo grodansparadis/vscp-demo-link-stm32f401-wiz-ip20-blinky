@@ -110,6 +110,9 @@ vscp_link_callback_quit(vscp_link_ctx_t *pctx)
   // Confirm quit
   vscp_link_callback_write_client(pctx, VSCP_LINK_MSG_GOODBYE);
 
+  // Save changes now: restarting the module below takes seconds
+  blinky_save_now();
+
   // Go to command mode
   int rv = wiznet_ip20_enter_command_mode();
   if (rv != 0) {
@@ -422,8 +425,9 @@ vscp_link_callback_send(vscp_link_ctx_t *pctx, vscp_event_t *pev)
   pctx->statistics.cntTransmitFrames++;
   pctx->statistics.cntTransmitData += pev->sizeData;
 
-  // Forward event to VSCP stack for processing (e.g. to be sent on other interfaces, etc)
-  vscp_frmw2_handle_protocol_event((vscp_frmw2_firmware_context_t *)pctx->user_data, pev);
+  // Give the event to the VSCP stack: protocol events (register read/write,
+  // ...) are handled and the decision matrix is run for it
+  vscp_frmw2_work((vscp_frmw2_firmware_context_t *) pctx->user_data, pev);
 
   return VSCP_ERROR_SUCCESS;
 }

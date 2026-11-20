@@ -35,24 +35,83 @@ The Blinky demo general functionality is described [here](https://github.com/gro
 The linker script ([STM32F401RETx_FLASH.ld](firmware/STM32F401RETx_FLASH.ld)) reduces the `FLASH` region to 384 KB and defines a separate `STORAGE` region. The driver is in [Core/Inc/flash_storage.h](firmware/Core/Inc/flash_storage.h) and [Core/Src/flash_storage.c](firmware/Core/Src/flash_storage.c).
 
 Key constraints:
-- A full sector (128 KB) must be **erased** before any byte in it can be written
+- A full sector (128 KB) must be **erased** before any byte in it can be written (flash bits only go from 1 to 0 without an erase)
 - Writes are **16-bit (half-word)** aligned
-- Flash endurance: ~**10 000** erase cycles per sector
+- Flash endurance: ~**10 000** erase cycles per sector, and an erase takes about a second
+
+So the configuration is not rewritten in place. Every save appends a record (magic, length, data, checksum) after the previous one, and the newest valid record is the configuration. The sector is erased only when it is full, about every 1 800 saves. A record that was not completely written (power loss) is skipped. Changed registers are saved one second after the last change, so a burst of register writes is one record, and pending changes are saved at once when a session ends. A configuration saved in the old layout (header + data) is loaded once and then saved as a record.
 
 ```c
 #include "flash_storage.h"
 
-// Erase both storage pages (required before first write)
-flash_storage_erase();
+// Load the newest saved configuration (false if there is none)
+if (!flash_storage_load(g_registers.word_array, count)) {
+    // use the defaults
+}
 
-// Write two half-words at offset 0
-uint16_t cfg[] = { 0x0001, 0x1234 };
-flash_storage_write(0, cfg, 2);
-
-// Read back
-uint16_t buf[2];
-flash_storage_read(0, buf, 2);
+// Save it (appends a record, erases the sector when it is full)
+flash_storage_save(g_registers.word_array, count);
 ```
+
+## Blinky functionality
+
+The demo follows the [Blinky MDF](https://eurosource.se/blinky0.json) (the source is in [vscp-firmware](https://github.com/grodansparadis/vscp-firmware/tree/master/demos/blinky/mdf)).
+
+| Register (page 0) | Use |
+| --- | --- |
+| 0, 1 | Zone and subzone of the node [saved] |
+| 2 | Status: bit 1 LED on, bit 0 button pressed. Writing bit 1 turns the LED on/off (when the LED is enabled) |
+| 3 | Control [saved, default 0xCE]: bit 7 LED enabled, bit 6 button enabled, bit 3 send TURN-ON on press and TURN-OFF on release, bit 2 send START on press, bit 1 send STOP on release, bit 0 millisecond counter running |
+| 4, 5 | Blink interval in ms, MSB first [saved, default 500]. Zero stops blinking |
+| 6-9 | Millisecond counter, MSB first. Writing any of them clears it. When it wraps, alarm bit 7 is set |
+| 10-12 | Byte 0, zone and subzone of the button events [saved] |
+| 0x60-0x7F | Decision matrix: four Level I rows of eight bytes (origin, flags, class mask, class filter, type mask, type filter, action, parameter) [saved] |
+
+The node runs as a **Level II** node (standard registers at 0xFFFFFF80; register read/write with CLASS1.PROTOCOL also works) but uses Level I decision matrix rows, as the MDF describes.
+
+Decision matrix actions: 0 no operation, 1 LED off/on/toggle (parameter 0/1/2), 2 LED on, 3 LED off, 4 toggle, 5 start blinking (with the interval in registers 4-5), 6 stop blinking, 7 clear the millisecond counter. The LED actions work when control bit 7 is set; on, off and toggle stop blinking.
+
+Events sent:
+- CLASS1.INFORMATION ON/OFF (20/3, 20/4) when the LED is turned on or off from outside (an action or a status register write), not for each blink. Data: index 0, zone, subzone
+- CLASS1.CONTROL TURN-ON (30/5) when the button is pressed and TURN-OFF (30/6) when it is released (control bit 3). Data: registers 10-12
+- CLASS1.INFORMATION START (20/25) on press and STOP (20/24) on release (control bits 2 and 1). Data: 0, button zone, button subzone
+- CLASS2.INFORMATION node heartbeat (1026/2) and CLASS2.PROTOCOL capabilities (1024/20) every 60 seconds
+
+Events received (from a link client, UDP, multicast or MQTT) are handled by the VSCP protocol (register read/write, ...) and run through the decision matrix. The node's GUID is made from the MCU unique id and the nickname.
+
+## Transports
+
+The transport is chosen when building, with the CMake option `BLINKY_MODE`:
+
+| `BLINKY_MODE` | WIZ-IP20 mode | VSCP |
+| --- | --- | --- |
+| `TCP_SERVER` (default) | TCP server, port 9598 | [VSCP link protocol](https://grodansparadis.github.io/vscp-doc-spec/#/./vscp_tcpiplink); one connection at a time |
+| `TCP_CLIENT` | TCP client to `BLINKY_REMOTE_HOST`:9598 | The node is the link protocol server on the connection it opens |
+| `UDP` | UDP, port 33333 | VSCP frames (version 0, not encrypted), one per datagram, sent to `BLINKY_REMOTE_HOST`:33333 |
+| `MULTICAST` | UDP, group 224.0.23.158, port 44444 | VSCP frames to and from the VSCP multicast group |
+| `MQTT` | MQTT client, broker `BLINKY_REMOTE_HOST`:1883 | One VSCP JSON event per message: published on `vscp/<guid>/out`, received on `vscp/<guid>/in` (`<guid>` is the GUID as 32 hex digits). User `vscp`, password `secret` |
+
+```bash
+cmake -B build-udp \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DBLINKY_MODE=UDP \
+  -DBLINKY_REMOTE_HOST=192.168.1.9
+
+cmake --build build-udp -j4
+```
+
+`BLINKY_REMOTE_PORT` sets another remote port (for example a test MQTT broker on 1884). The MQTT build fetches [cJSON](https://github.com/DaveGamble/cJSON) when it is configured. The node's own address is set in [wiznet-ip20.h](firmware/wiznet-ip20.h) (`WIZ_IP20_IP`, default 192.168.1.88).
+
+Example MQTT session with mosquitto:
+
+```bash
+mosquitto_sub -h broker -t 'vscp/+/out'
+mosquitto_pub -h broker -t vscp/FD0002005D005E3333510C3435343710/in \
+  -m '{"vscpHead":0,"vscpClass":0,"vscpType":9,"vscpData":[16,3]}'   # read register 3 of node 0x10
+```
+
+Timestamps in the events are the time since the node started: the board has no real-time clock.
 
 ### Setup
 
@@ -81,10 +140,10 @@ cmake -B build \
   -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake \
   -DCMAKE_BUILD_TYPE=Debug
 
-cmake --build build -j$(nproc)
+cmake --build build -j4
 ```
 
-This produces build/firmware.elf and .hex/.bin.
+This produces build/firmware.elf and .hex/.bin. Add `-DBLINKY_MODE=...` to choose the transport (see [Transports](#transports)).
 
 
 ## Flashing the project
@@ -133,7 +192,7 @@ Use OpenOCD with GDB:
 
 ```bash
 # Start OpenOCD in one terminal
-openocd -f interface/stlink.cfg -f target/stm32f1x.cfg
+openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
 
 # In another terminal, connect with GDB
 arm-none-eabi-gdb build/firmware.elf
