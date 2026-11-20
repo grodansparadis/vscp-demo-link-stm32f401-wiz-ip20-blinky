@@ -12,10 +12,15 @@ The Blinky demo general functionality is described [here](https://github.com/gro
 
 ## Hardware
 - [ST-Link V2 programmer/debugger](https://www.st.com/en/development-tools/st-link-v2.html)
+- [STM32F401RE Nucleo Board](https://www.st.com/en/evaluation-tools/nucleo-f401re.html)
 - [WIZ-IP20 IO Module](https://docs.wiznet.io/Product/Modules/Serial-to-Ethernet-Module/WIZ-IP20/ip20-io)
 - [W55RP20-S2E Command Manual](https://docs.wiznet.io/Product/Chip/MCU/Pre-programmed-MCU/W55RP20-S2E/command-manual-en)
 - [WIZ-IP20 Product Page](https://wiznet.io/products/serial-to-ethernet-modules/wiz-ip20)
 - [WIZnet S2E Tool GUI Getting Started Guide](https://github.com/Wiznet/WIZnet-S2E-Tool-GUI/wiki/Getting-started-guide_en)
+
+## Prototype connection diagram
+
+![Prototype connection diagram](./images/prototype-connection-diagram.png)
 
 ### Resources
 
