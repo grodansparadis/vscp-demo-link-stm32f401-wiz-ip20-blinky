@@ -429,6 +429,9 @@ vscp_link_callback_send(vscp_link_ctx_t *pctx, vscp_event_t *pev)
   // ...) are handled and the decision matrix is run for it
   vscp_frmw2_work((vscp_frmw2_firmware_context_t *) pctx->user_data, pev);
 
+  // On success the event is ours (the link protocol code only deletes it on an error)
+  vscp_fwhlp_deleteEvent(&pev);
+
   return VSCP_ERROR_SUCCESS;
 }
 
@@ -688,7 +691,7 @@ vscp_link_callback_rcvloop(vscp_link_ctx_t *pctx, vscp_event_t **pev)
   }
 
   // Every second output '+OK\r\n' in rcvloop mode
-  if ((HAL_GetTick() - pctx->last_rcvloop_time) > 1000000) {
+  if ((HAL_GetTick() - pctx->last_rcvloop_time) > 1000) {
     pctx->last_rcvloop_time = HAL_GetTick();
     return VSCP_ERROR_TIMEOUT;
   }

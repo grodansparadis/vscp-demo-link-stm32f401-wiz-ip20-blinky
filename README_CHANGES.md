@@ -7,6 +7,7 @@ tagged, rename **Unreleased** to the version and date, and start a new
 
 ## Unreleased
 
+- Events sent by a link client were never freed (out of memory after about 1500 events); `rcvloop` sends '+OK' every second (it was every 1000 seconds); vscp-firmware updated (`clrall` frees the queued events)
 - The decision matrix works: events from clients are run through it (only the protocol handler got them), its registers 0x60-0x7F can be read and written, and it uses the Level I rows of the MDF (new vscp-firmware with fixed Level II matrix and `bDmLevel1Rows`)
 - Settings are kept: flash was rewritten without erasing, so only the first save worked. The configuration is now saved as appended records (erase only when the sector is full), one second after the last change and at once when a session ends; the old layout is loaded once
 - Nickname and user id are saved and loaded; the node GUID (from the MCU id) is set for the firmware too (sent events had an all-zero GUID)
