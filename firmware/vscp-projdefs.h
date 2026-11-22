@@ -80,8 +80,8 @@
  * Firmware version
  */
 #define THIS_FIRMWARE_MAJOR_VERSION   (0u)
-#define THIS_FIRMWARE_MINOR_VERSION   (0u)
-#define THIS_FIRMWARE_RELEASE_VERSION (1u)
+#define THIS_FIRMWARE_MINOR_VERSION   (1u)
+#define THIS_FIRMWARE_RELEASE_VERSION (0u)
 /* THIS_FIRMWARE_BUILD_VERSION is auto-generated and provided by build_number.h */
 #include "build_number.h"
 
