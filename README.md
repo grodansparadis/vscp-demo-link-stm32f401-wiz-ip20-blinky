@@ -141,6 +141,12 @@ Check out the repository
 Go to the firmware directory
 
 ```bash
+cd vscp-demo-link-stm32f401-wiz-ip20-blinky/firmware
+```
+
+execute the following commands to configure and build the project:
+
+```bash
 cmake -B build \
   -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake \
   -DCMAKE_BUILD_TYPE=Debug
